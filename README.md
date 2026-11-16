@@ -68,4 +68,4 @@ If the version in `app/package.json` has no release yet, the workflow releases t
 
 ## Credits
 
-The pixel sky background, the grid and the glass styles come from the Nyx theme for [T3 Code](https://github.com/pingdotgg/t3code). Thanks to its creator for the art.
+The pixel sky background, the grid and the glass styles come from the Nyx theme for [T3 Code](https://github.com/pingdotgg/t3code), made by [Deepu (@Deepusleepy)](https://github.com/Deepusleepy). Thanks to Deepu for the art.
