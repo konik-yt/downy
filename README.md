@@ -36,9 +36,10 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
 
 ## Install
 
-1. Run `app\dist\Downy-Setup-2.0.0.exe`, or use `app\dist\Downy-2.0.0-portable.exe` without installing.
-2. Open `chrome://extensions`, turn on Developer mode, click "Load unpacked" and pick the `extension` folder. If you loaded it before, click its reload button.
-3. Open any YouTube video and click "Download this video".
+1. Open the [latest release](https://github.com/konik-yt/downy/releases/latest) and download `Downy-Setup-<version>.exe`, or `Downy-<version>-portable.exe` to run it without installing. The exe is not code signed, so Windows SmartScreen may warn you. Click "More info", then "Run anyway".
+2. Download `Downy-extension-<version>.zip` from the same release and unzip it.
+3. Open `chrome://extensions`, turn on Developer mode, click "Load unpacked" and pick the unzipped folder. If you loaded it before, click its reload button.
+4. Open any YouTube video and click "Download this video".
 
 ## Build from source
 
@@ -52,3 +53,19 @@ npm run dist       # build the installer and the portable exe into app/dist
 For testing, `DOWNY_USER_DATA` points Downy at a separate settings and history folder, and `DOWNY_SCREENSHOT` saves screenshots of the window every few seconds.
 
 Keep yt-dlp current with `yt-dlp -U` (or `winget upgrade yt-dlp.yt-dlp`), since YouTube changes often.
+
+## Releasing
+
+The Release workflow in `.github/workflows/release.yml` builds the installer, the portable exe and the extension zip on GitHub and publishes them as a release. Start it from the Actions tab (Release, then "Run workflow") or with:
+
+```
+gh workflow run release.yml                      # next patch version, like 2.0.1
+gh workflow run release.yml -f bump=minor        # like 2.1.0
+gh workflow run release.yml -f version=3.0.0     # an exact version
+```
+
+If the version in `app/package.json` has no release yet, the workflow releases that version as it is. Otherwise it raises the version, writes it to `app/package.json` and `extension/manifest.json`, commits that to the branch and tags the commit.
+
+## Credits
+
+The pixel sky background, the grid and the glass styles come from the Nyx theme for [T3 Code](https://github.com/pingdotgg/t3code). Thanks to its creator for the art.
