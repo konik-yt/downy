@@ -40,6 +40,7 @@ function safeFileName(name) {
 //   Downloads\          files caught from the browser or pasted links
 //   YouTube\<format>\   YouTube files, one folder per format (MP3, M4A, 720p, 1080p ...)
 const FILES_DIR = "Downloads";
+const LEGACY_PARTS = ".downy-parts";
 const YOUTUBE_DIR = "YouTube";
 
 function nameFromUrl(url) {
@@ -92,6 +93,7 @@ class Manager extends EventEmitter {
     this.jobs = new Map();
     this.runtime = new Map(); // id -> { ctrl, proc, bytes, samples }
     this.load();
+    this.sweepParts();
     this.ticker = setInterval(() => this.tick(), 500);
   }
 
@@ -405,13 +407,64 @@ class Manager extends EventEmitter {
     });
   }
 
+  // Unfinished files live in Downy's own data folder, so the download folder only holds finished files.
   partsDir() {
-    const dir = path.join(this.settings.get().downloadDir, ".downy-parts");
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-      if (process.platform === "win32") execFile("attrib", ["+h", dir], { windowsHide: true }, () => {});
-    }
+    const dir = path.join(this.dataDir, "parts");
+    fs.mkdirSync(dir, { recursive: true });
     return dir;
+  }
+
+  // Older versions kept unfinished files in a hidden .downy-parts folder inside the download folder.
+  isPartsDir(dir) {
+    return path.basename(dir) === LEGACY_PARTS || path.resolve(dir) === path.resolve(this.dataDir, "parts");
+  }
+
+  // Deletes leftover temporary files that no download uses any more, and the old
+  // .downy-parts folders once they are empty. That includes folders left behind in
+  // download folders the user has since moved away from.
+  sweepParts() {
+    const dirs = new Set([this.partsDir(), path.join(this.settings.get().downloadDir, LEGACY_PARTS)]);
+    const used = new Set();
+    const bases = [];
+    for (const j of this.jobs.values()) {
+      for (const st of j.streams || []) {
+        if (!st.path) continue;
+        used.add(path.resolve(st.path).toLowerCase());
+        dirs.add(path.dirname(st.path));
+      }
+      if (j.tempDir) dirs.add(j.tempDir);
+      if (j.mode === "ytdlp" && j.status !== "done" && j.status !== "cancelled") bases.push(this.ytdlpBase(j) + ".");
+      // A finished file sits one to three folders below the download folder it was saved to.
+      let up = j.filepath ? path.dirname(j.filepath) : "";
+      for (let i = 0; up && i < 3; i++) {
+        dirs.add(path.join(up, LEGACY_PARTS));
+        up = path.dirname(up) === up ? "" : path.dirname(up);
+      }
+    }
+    const current = path.resolve(this.partsDir());
+    for (const dir of dirs) {
+      if (!this.isPartsDir(dir)) continue;
+      let entries = [];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      let left = entries.length;
+      for (const e of entries) {
+        const full = path.join(dir, e.name);
+        if (!e.isFile() || used.has(path.resolve(full).toLowerCase()) || bases.some((b) => e.name.startsWith(b))) continue;
+        try {
+          fs.rmSync(full, { force: true });
+          left--;
+        } catch {}
+      }
+      if (!left && path.resolve(dir) !== current) {
+        try {
+          fs.rmdirSync(dir);
+        } catch {}
+      }
+    }
   }
 
   targetDir(j) {
@@ -508,9 +561,15 @@ class Manager extends EventEmitter {
     if (j.kind === "file") {
       const from = j.streams[0].path;
       try {
-        fs.renameSync(from, out);
+        await fs.promises.rename(from, out);
       } catch {
-        fs.copyFileSync(from, out); // the download folder may be on another drive
+        // The download folder is on another drive. Copy without blocking the app; cleanup removes the original.
+        try {
+          await fs.promises.copyFile(from, out);
+        } catch (e) {
+          removeQuietly(out);
+          throw e;
+        }
       }
       j.filepath = out;
       return;
@@ -587,6 +646,8 @@ class Manager extends EventEmitter {
     const dir = this.targetDir(j);
     // yt-dlp reads % as the start of a template field, so a literal % is written %%.
     const base = this.ytdlpBase(j).replace(/%/g, "%%");
+    // A resumed job keeps the temp folder it started in, where its partial files are.
+    if (!j.tempDir || !fs.existsSync(j.tempDir)) j.tempDir = this.partsDir();
     // The stream links in an old info file have expired; get fresh ones, or let yt-dlp read the page.
     let infoFile = fs.existsSync(j.infoFile || "") ? j.infoFile : "";
     if (infoFile && Date.now() - fs.statSync(infoFile).mtimeMs > INFO_TTL) {
@@ -600,7 +661,7 @@ class Manager extends EventEmitter {
     const args = [
       infoFile ? "--load-info-json" : "--no-playlist",
       infoFile || j.url,
-      "-f", j.selector, "-P", dir, "-P", `temp:${this.partsDir()}`, "-o", `${base}.%(ext)s`,
+      "-f", j.selector, "-P", dir, "-P", `temp:${j.tempDir}`, "-o", `${base}.%(ext)s`,
       "-N", String(s.connections), "--newline", "--progress", "--no-mtime", "--no-warnings",
       "--ffmpeg-location", tools.find("ffmpeg"),
       "--progress-template",
@@ -656,10 +717,10 @@ class Manager extends EventEmitter {
     return safeName(j.title) + (j.kind === "video" ? ` (${j.height}p)` : "");
   }
 
-  // Deletes a job's temporary files. Only ever touches files in .downy-parts.
+  // Deletes a job's temporary files. Only ever touches files in a parts folder.
   cleanup(j) {
     for (const st of j.streams || []) {
-      if (st.path && path.basename(path.dirname(st.path)) === ".downy-parts") removeQuietly(st.path);
+      if (st.path && this.isPartsDir(path.dirname(st.path))) removeQuietly(st.path);
       delete st.headers; // they can hold the browser's cookies and are not needed any more
     }
     if (j.mode !== "ytdlp") return;
@@ -668,7 +729,9 @@ class Manager extends EventEmitter {
       .filter((o) => o !== j && o.mode === "ytdlp" && !FINISHED.has(o.status))
       .map((o) => this.ytdlpBase(o) + ".");
     const base = this.ytdlpBase(j) + ".";
-    const dir = path.join(this.settings.get().downloadDir, ".downy-parts");
+    // Jobs from older versions did not record their temp folder; it was inside the download folder.
+    const dir = j.tempDir || path.join(this.settings.get().downloadDir, LEGACY_PARTS);
+    if (!this.isPartsDir(dir)) return;
     let names = [];
     try {
       names = fs.readdirSync(dir);
