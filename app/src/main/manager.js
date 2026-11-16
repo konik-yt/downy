@@ -735,8 +735,6 @@ class Manager extends EventEmitter {
       if (rt.ctrl.signal.aborted) throw new AbortError();
     }
     const args = [
-      infoFile ? "--load-info-json" : "--no-playlist",
-      infoFile || j.url,
       "-f", j.selector, "-P", dir, "-P", `temp:${j.tempDir}`, "-o", `${base}.%(ext)s`,
       "-N", String(s.connections), "--newline", "--progress", "--no-mtime", "--no-warnings",
       "--ffmpeg-location", tools.find("ffmpeg"),
@@ -748,6 +746,10 @@ class Manager extends EventEmitter {
     if (j.kind === "video") args.push("--merge-output-format", "mp4");
     if (j.kind === "mp3") args.push("-x", "--audio-format", "mp3", "--audio-quality", "0");
     if (j.kind === "audio" && j.streams?.[0]?.ext !== "m4a") args.push("-x", "--audio-format", "m4a");
+    // The info file is the value of --load-info-json. A page URL goes last, after "--",
+    // so yt-dlp reads it as a URL even if it starts with "-".
+    if (infoFile) args.push("--load-info-json", infoFile);
+    else args.push("--no-playlist", "--", j.url);
     return new Promise((resolve, reject) => {
       const proc = spawn(bin, args, { windowsHide: true, env: CHILD_ENV });
       rt.proc = proc;

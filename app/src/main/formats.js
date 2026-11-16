@@ -8,6 +8,7 @@ const TTL = 60 * 60 * 1000; // stream URLs stay valid for several hours; one hou
 const YOUTUBE_HOSTS = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i;
 
 function isYoutubeUrl(url) {
+  if (typeof url !== "string") return false;
   try {
     const u = new URL(url);
     return (u.protocol === "https:" || u.protocol === "http:") && YOUTUBE_HOSTS.test(u.hostname);
@@ -18,6 +19,7 @@ function isYoutubeUrl(url) {
 
 // Video pages on any site go to yt-dlp, which says whether it knows the site.
 function isHttpUrl(url) {
+  if (typeof url !== "string") return false;
   try {
     return /^https?:$/.test(new URL(url).protocol);
   } catch {
@@ -167,6 +169,7 @@ class InfoCache {
   }
 
   async get(url, { fresh = false, cookies } = {}) {
+    if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");
     for (const [key, e] of this.entries) if (Date.now() - e.at >= TTL) this.entries.delete(key);
     if (Array.isArray(cookies) && cookies.length && !isYoutubeUrl(url)) this.cookies.set(url, cookies);
     const hit = this.entries.get(url);
@@ -201,6 +204,7 @@ class InfoCache {
   extract(url, cookies) {
     const bin = tools.find("yt-dlp");
     if (!bin) return Promise.reject(new Error("yt-dlp was not found. Open Settings in Downy and click Install tools."));
+    if (!isHttpUrl(url)) return Promise.reject(new Error("Downy can only read http and https pages"));
     // Without the generic extractor, a site yt-dlp has no extractor for fails at once
     // with "Unsupported URL" instead of yt-dlp searching the page for any video.
     const args = ["-J", "--no-playlist", "--no-warnings", "--ies", "default,-generic", ...tools.jsRuntimeArgs()];
@@ -211,7 +215,8 @@ class InfoCache {
       fs.writeFileSync(jar, cookieFile(cookies), { mode: 0o600 });
       args.push("--cookies", jar);
     }
-    args.push(url);
+    // After "--" yt-dlp reads the URL as a URL even if it starts with "-".
+    args.push("--", url);
     const done = () => jar && fs.rm(jar, { force: true }, () => {});
     return new Promise((resolve, reject) => {
       execFile(bin, args, { windowsHide: true, maxBuffer: 256 * 1024 * 1024, timeout: 120000, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } },
