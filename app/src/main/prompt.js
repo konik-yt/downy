@@ -4,8 +4,9 @@
 // The extension follows each request by its id until it is started or cancelled.
 const path = require("path");
 const crypto = require("crypto");
-const { BrowserWindow, screen, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, screen, ipcMain, dialog } = require("electron");
 const { buildOptions, publicOptions } = require("./formats");
+const { fromApp } = require("./guard");
 
 const WIDTH = 620;
 const KEEP = 10 * 60 * 1000; // answered requests are forgotten after this
@@ -28,6 +29,7 @@ class Prompts {
 
     const handle = (name, fn) => ipcMain.handle(name, async (e, ...args) => {
       try {
+        if (!fromApp(e)) throw new Error("This request did not come from Downy.");
         const item = [...this.items.values()].find((x) => x.win?.webContents === e.sender);
         if (!item) throw new Error("This download was already answered.");
         return { ok: true, data: await fn(item, ...args) };
@@ -39,14 +41,15 @@ class Prompts {
     handle("prompt:choose-folder", async (item, current) => {
       const r = await dialog.showOpenDialog(item.win, {
         title: "Choose where to save this download",
-        defaultPath: current,
+        defaultPath: typeof current === "string" ? current : undefined,
         properties: ["openDirectory", "createDirectory"],
       });
       return r.canceled ? null : r.filePaths[0] || null;
     });
-    handle("prompt:submit", (item, choice) => this.submit(item, choice || {}));
+    handle("prompt:submit", (item, choice) => this.submit(item, choice && typeof choice === "object" ? choice : {}));
     handle("prompt:cancel", (item) => item.win.close());
     ipcMain.on("prompt:size", (e, height) => {
+      if (!fromApp(e)) return;
       const item = [...this.items.values()].find((x) => x.win?.webContents === e.sender);
       const h = Math.round(Number(height));
       if (item && h > 0) item.win.setContentSize(WIDTH, Math.min(h, 720));
@@ -97,12 +100,13 @@ class Prompts {
     });
     item.win = win;
     win.removeMenu();
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     win.loadFile(path.join(__dirname, "..", "renderer", "prompt.html"));
     win.once("ready-to-show", () => {
       win.show();
       win.focus();
       // For testing, like the main window: a screenshot, then a script to run in the window.
-      if (process.env.DOWNY_SCREENSHOT) {
+      if (!app.isPackaged && process.env.DOWNY_SCREENSHOT) {
         setTimeout(async () => {
           const img = await win.webContents.capturePage();
           require("fs").writeFileSync(`${process.env.DOWNY_SCREENSHOT}-prompt-${item.id}.png`, img.toPNG());
