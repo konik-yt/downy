@@ -141,6 +141,7 @@ if (!app.requestSingleInstanceLock()) {
     settings = new Settings(dataDir);
     cache = new InfoCache(path.join(dataDir, "cache"));
     manager = new Manager({ dataDir, cache, settings });
+    cache.prune(manager.infoFiles());
 
     createWindow();
     tray = new Tray(icon("tray.png"));
