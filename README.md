@@ -49,6 +49,12 @@ When any of them is missing, Downy offers to install it with winget (`yt-dlp.yt-
 
 ## Install
 
+This video shows the whole setup, click by click, in under a minute: the installer, the first start and adding the Chrome extension. The captions say what to click at each step. [Watch it with sound](docs/downy-setup.mp4).
+
+[![Downy setup, step by step](docs/downy-setup.webp)](docs/downy-setup.mp4)
+
+The same steps in writing:
+
 1. Open the [latest release](https://github.com/konik-yt/downy/releases/latest) and download `Downy-Setup-<version>.exe`, or `Downy-<version>-portable.exe` to run it without installing. The exe is not code signed, so Windows SmartScreen may warn you. Click "More info", then "Run anyway".
 2. Start Downy. The welcome screen asks for a download folder, then walks you through adding the Chrome extension, which comes with Downy. Chrome only allows this kind of extension by hand: open `chrome://extensions`, turn on Developer mode, click "Load unpacked" and pick the folder Downy shows. The screen turns green once Chrome has loaded it.
 3. Open any YouTube video and click "Download this video".
