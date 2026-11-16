@@ -28,20 +28,34 @@ function startServer({ manager, cache, settings, tools, actions }) {
     res.end(body);
   };
 
+  // Resolves null when the body is too big or the request breaks off.
+  // Buffers are joined before decoding so a character split across chunks stays whole.
   const readBody = (req) => new Promise((resolve) => {
-    let raw = "";
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
     req.on("data", (d) => {
-      raw += d;
-      if (raw.length > 1e6) req.destroy();
+      size += d.length;
+      if (size > 1e6) {
+        done(null);
+        req.pause();
+      } else chunks.push(d);
     });
     req.on("end", () => {
       try {
-        const v = JSON.parse(raw || "{}");
-        resolve(v && typeof v === "object" ? v : {});
+        const v = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+        done(v && typeof v === "object" ? v : {});
       } catch {
-        resolve({});
+        done({});
       }
     });
+    req.on("close", () => done(null));
+    req.on("error", () => done(null));
   });
 
   const server = http.createServer(async (req, res) => {
@@ -81,6 +95,10 @@ function startServer({ manager, cache, settings, tools, actions }) {
         return res.end();
       }
       const data = await readBody(req);
+      if (!data) {
+        res.writeHead(413, { Connection: "close" });
+        return res.end();
+      }
       const id = String(data.id || "");
       switch (path) {
         case "/api/formats": {
