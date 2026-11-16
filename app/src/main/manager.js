@@ -59,6 +59,12 @@ function linkExpired(url) {
   }
 }
 
+function removeQuietly(file) {
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {}
+}
+
 function killTree(proc) {
   if (!proc || proc.exitCode !== null) return;
   if (process.platform === "win32") execFile("taskkill", ["/T", "/F", "/PID", String(proc.pid)], { windowsHide: true }, () => {});
@@ -501,14 +507,20 @@ class Manager extends EventEmitter {
     }
     j.postProgress = 0;
     this.changed();
+    // A stopped or failed ffmpeg leaves a broken file behind; uniquePath made sure it is ours.
     try {
       await this.ffmpeg(args, j, rt);
     } catch (e) {
+      removeQuietly(out);
       if (j.kind !== "video" || rt.ctrl.signal.aborted) throw e;
       // Some codec pairs do not fit in MP4. MKV holds anything.
-      fs.rmSync(out, { force: true });
       const mkv = uniquePath(out.replace(/\.mp4$/, ".mkv"));
-      await this.ffmpeg([...args.slice(0, -3), mkv], j, rt);
+      try {
+        await this.ffmpeg([...args.slice(0, -3), mkv], j, rt);
+      } catch (e2) {
+        removeQuietly(mkv);
+        throw e2;
+      }
       j.filepath = mkv;
       return;
     }
