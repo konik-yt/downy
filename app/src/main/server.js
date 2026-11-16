@@ -99,6 +99,14 @@ function startServer({ manager, cache, settings, tools, actions }) {
           if (settings.get().showOnStart) actions.show(d.id);
           return send(req, res, 200, d);
         }
+        case "/api/file": {
+          const d = await manager.addFile({
+            url: String(data.url || ""), filename: String(data.filename || ""), referrer: String(data.referrer || ""),
+            cookies: String(data.cookies || ""), userAgent: String(data.userAgent || ""), mime: String(data.mime || ""),
+          });
+          if (settings.get().showOnStart) actions.show(d.id);
+          return send(req, res, 200, d);
+        }
         case "/api/pause": manager.pause(id); break;
         case "/api/resume": manager.resume(id); break;
         case "/api/cancel": manager.cancel(id); break;

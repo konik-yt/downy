@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("downy", {
   recheckTools: call("tools:recheck"),
   formats: call("formats"),
   download: call("download"),
+  addFile: call("add-file"),
   pause: call("pause"),
   resume: call("resume"),
   pauseAll: call("pause-all"),
