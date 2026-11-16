@@ -36,9 +36,9 @@ function eta(s) {
   if (s == null || !isFinite(s)) return "";
   s = Math.round(s);
   if (s < 60) return `${s} s left`;
-  if (s < 3600) return `${Math.round(s / 60)} min left`;
-  const h = Math.floor(s / 3600);
-  return `${h} h ${Math.round((s % 3600) / 60)} min left`;
+  const m = Math.round(s / 60); // round once, so 59.6 min becomes 1 h, not 60 min
+  if (m < 60) return `${m} min left`;
+  return `${Math.floor(m / 60)} h ${m % 60} min left`;
 }
 
 function when(ts) {
