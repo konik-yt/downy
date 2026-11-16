@@ -9,7 +9,8 @@
     "start": "electron .",
     "dist": "electron-builder --win nsis",
     "dist:dir": "electron-builder --win --dir",
-    "lint": "cd .. && eslint --config app/eslint.config.js app extension"
+    "lint": "cd .. && eslint --config app/eslint.config.js app extension",
+    "test": "node --test \"test/*.test.js\""
   },
   "build": {
     "appId": "dev.downy.app",
