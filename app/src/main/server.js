@@ -1,19 +1,28 @@
 // Local HTTP API on 127.0.0.1:9614 for the Chrome extension.
 const http = require("http");
+const crypto = require("crypto");
 const { isHttpUrl, buildOptions, publicOptions } = require("./formats");
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.DOWNY_PORT || 9614);
 const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 
-function startServer({ manager, cache, settings, tools, prompts, actions }) {
-  // Only the extension may call the API. Checking Host blocks DNS rebinding;
-  // checking Origin blocks other websites.
+function startServer({ manager, cache, settings, tools, prompts, actions, token, extensionVersion }) {
+  // Checking Host blocks DNS rebinding, and checking Origin blocks other websites.
+  // A request with no Origin can only be a GET, and every /api/ call also needs the token.
   const allowed = (req) => {
     if (!ALLOWED_HOSTS.has(req.headers.host)) return false;
     const origin = req.headers.origin;
     if (!origin) return req.method === "GET";
     return origin.startsWith("chrome-extension://");
+  };
+
+  // Other Chrome extensions also send a chrome-extension:// Origin. Only Downy's own copy
+  // of the extension can read token.json, which ExtensionCopy writes next to its files.
+  const expected = Buffer.from(token);
+  const hasToken = (req) => {
+    const got = Buffer.from(String(req.headers["x-downy-token"] || ""));
+    return got.length === expected.length && crypto.timingSafeEqual(got, expected);
   };
 
   const send = (req, res, status, data) => {
@@ -65,18 +74,28 @@ function startServer({ manager, cache, settings, tools, prompts, actions }) {
     }
     const url = new URL(req.url, "http://x");
     const path = url.pathname;
-    // The extension adds its version to every request (versions before 2.1 send none).
-    // A GET from the extension may come without an Origin header, so the version counts too.
-    if (req.headers.origin?.startsWith("chrome-extension://") || url.searchParams.has("ext")) {
-      actions.extensionSeen(url.searchParams.get("ext"));
-    }
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "Access-Control-Allow-Origin": req.headers.origin,
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Content-Type, X-Downy-Token",
       });
       return res.end();
+    }
+    if (path.startsWith("/api/")) {
+      const fromExtension = req.headers.origin?.startsWith("chrome-extension://") || url.searchParams.has("ext");
+      if (!hasToken(req)) {
+        // An older version is Chrome still running the copy from before an update, so the
+        // window says to reload it. The current version without the token was loaded from
+        // a zip or from this repo, so the window says to load Downy's folder instead.
+        if (fromExtension) {
+          const v = url.searchParams.get("ext");
+          actions.extensionSeen(v && v !== extensionVersion ? v : null);
+        }
+        return send(req, res, 401, { error: "This copy of the Downy extension can't talk to Downy. In chrome://extensions, remove it and load the folder Downy shows in Settings, Chrome extension." });
+      }
+      // The extension adds its version to every request.
+      actions.extensionSeen(url.searchParams.get("ext"));
     }
     try {
       if (req.method === "GET") {

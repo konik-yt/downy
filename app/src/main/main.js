@@ -207,7 +207,7 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     try {
-      await startServer({ manager, cache, settings, tools, prompts, actions: { show, reveal, extensionSeen } });
+      await startServer({ manager, cache, settings, tools, prompts, token: extension.token, extensionVersion: extension.version, actions: { show, reveal, extensionSeen } });
     } catch (e) {
       dialog.showErrorBox("Downy could not start its helper",
         `Port ${PORT} is in use. If the old Python helper is running, close it (end pythonw.exe in Task Manager) and start Downy again.\n\n${e.message}`);

@@ -26,7 +26,7 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
 
 ## Parts
 
-- `app/` is the desktop app (Electron). It serves a small local API on `http://127.0.0.1:9614` for the extension and accepts requests only from Chrome extensions.
+- `app/` is the desktop app (Electron). It serves a small local API on `http://127.0.0.1:9614` for the extension. Every call needs a random token that Downy writes into its own copy of the extension as `token.json`, so web pages and other extensions can't use the API.
   - `src/main/segmented.js` is the multi-connection downloader.
   - `src/main/manager.js` is the queue, pause and resume, saving state, and the ffmpeg merge or MP3 conversion.
   - `src/renderer/` is the window. The background is the Nyx pixel sky from T3 Code.
@@ -63,7 +63,7 @@ The portable exe can't replace itself, so it only shows that a new version is ou
 
 Versions before 2.2 have no updater. Run the new `Downy-Setup-<version>.exe` over the old one once. Your settings, history and unfinished downloads stay in `%APPDATA%\Downy`.
 
-Downy keeps its copy of the extension in `%APPDATA%\Downy\Chrome extension` and refreshes it after each update, so Chrome picks up the new extension the next time it starts. You can also click the reload button on Downy in `chrome://extensions` to load it right away. If you loaded the extension from a zip or from this repo before 2.1, Downy asks once to switch to its own copy.
+Downy keeps its copy of the extension in `%APPDATA%\Downy\Chrome extension` and refreshes it after each update, so Chrome picks up the new extension the next time it starts. You can also click the reload button on Downy in `chrome://extensions` to load it right away. The extension only works from that folder, because that is where Downy writes the token the API asks for. If you loaded it from a zip or from this repo, Downy asks you to switch to its own copy.
 
 ## Build from source
 
