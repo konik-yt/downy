@@ -189,7 +189,7 @@ function renderListHead(items) {
   if (state.downloads.some((d) => d.status === "paused")) btn("Resume all", "play", () => call(downy.resumeAll));
   if (state.folder) btn("Open folder", "folder", () => call(downy.openFolder, state.folder));
   if ((state.filter === "done" || state.filter === "failed") && !state.folder && items.length) {
-    btn("Clear from list", "trash", () => call(downy.clear));
+    btn("Clear from list", "trash", () => call(downy.clear, state.filter));
   }
   $("listActions").replaceChildren(...actions);
 }
