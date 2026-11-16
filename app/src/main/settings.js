@@ -12,6 +12,7 @@ const DEFAULTS = {
   closeToTray: true,
   openAtLogin: false,
   notify: true,
+  onboarded: false, // the first run asks where to save downloads
 };
 
 const LIMITS = { connections: [1, 32], maxActive: [1, 10] };
@@ -23,6 +24,8 @@ class Settings extends EventEmitter {
     let saved = {};
     try {
       saved = JSON.parse(fs.readFileSync(this.file, "utf8"));
+      // Settings saved by a version without the welcome screen belong to someone already set up.
+      if (saved && typeof saved === "object" && saved.onboarded === undefined) saved.onboarded = true;
     } catch {}
     this.values = { ...DEFAULTS, ...saved };
   }
