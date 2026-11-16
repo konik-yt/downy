@@ -44,15 +44,15 @@
     <section class="hero" id="hero">
       <div class="wordmark" aria-hidden="true">Downy</div>
       <h1>What should we download?</h1>
-      <p class="sub">Paste a YouTube link, or click Download this video on any YouTube page</p>
+      <p class="sub">Paste any link, or download in Chrome as usual and Downy takes over</p>
     </section>
 
     <form class="composer" id="composer" autocomplete="off">
-      <label class="sr-only" for="url">YouTube link</label>
-      <input id="url" type="text" spellcheck="false" placeholder="Paste a YouTube link">
+      <label class="sr-only" for="url">Link to download</label>
+      <input id="url" type="text" spellcheck="false" placeholder="Paste a YouTube link or a file link">
       <div class="composer-row">
-        <span class="hint" id="composerHint"><span data-icon="link"></span>Formats are sorted into MP3, M4A and resolution folders</span>
-        <button class="send" type="submit" id="sendBtn" aria-label="Get formats" title="Get formats" data-icon="arrowUp"></button>
+        <span class="hint" id="composerHint"><span data-icon="link"></span>YouTube files are sorted by format, other files go into Downloads</span>
+        <button class="send" type="submit" id="sendBtn" aria-label="Download" title="Download" data-icon="arrowUp"></button>
       </div>
       <div class="picker" id="picker" hidden></div>
     </form>
@@ -86,8 +86,8 @@
 
     <label class="field">
       <span class="field-text">
-        <span class="field-label">Sort into format folders</span>
-        <span class="field-help">Saves each file in a folder named after its format, such as MP3, M4A, 720p or 1080p</span>
+        <span class="field-label">Sort YouTube files by format</span>
+        <span class="field-help">Saves YouTube files in YouTube, in a folder per format such as MP3, M4A, 720p or 1080p. Other files always go into Downloads.</span>
       </span>
       <input type="checkbox" class="switch" name="organize">
     </label>

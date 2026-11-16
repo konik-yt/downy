@@ -104,28 +104,42 @@ function renderSidebar() {
     return b;
   }));
 
-  const folders = {};
-  for (const d of state.downloads) if (d.status === "done" && d.folder) folders[d.folder] = (folders[d.folder] || 0) + 1;
+  // Folders mirror the disk: Downloads for files, YouTube with one folder per format.
+  const fc = {};
+  for (const d of state.downloads) {
+    if (d.status !== "done") continue;
+    const dir = folderOf(d);
+    fc[dir] = (fc[dir] || 0) + 1;
+    if (dir.startsWith("YouTube/")) fc.YouTube = (fc.YouTube || 0) + 1;
+  }
   const order = (name) => {
     const m = /^(\d+)p$/.exec(name);
     return m ? -Number(m[1]) : name === "MP3" ? 1 : 2;
   };
-  const names = Object.keys(folders).sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+  const formats = Object.keys(fc).filter((k) => k.startsWith("YouTube/")).map((k) => k.slice(8))
+    .sort((a, b) => order(a) - order(b) || a.localeCompare(b));
+  const item = (key, label, ic, count, sub = false) => {
+    const b = el("button", "nav-item" + (sub ? " sub" : ""));
+    b.innerHTML = icon(ic);
+    b.append(el("span", "", label), el("span", "count", count ? String(count) : ""));
+    if (state.folder === key) b.setAttribute("aria-current", "true");
+    b.onclick = () => {
+      state.folder = key;
+      render();
+    };
+    return b;
+  };
   const box = $("folders");
-  if (!names.length) {
-    box.replaceChildren(el("p", "nav-note", "Finished files show up here, grouped by format."));
+  if (!fc.Downloads && !fc.YouTube) {
+    box.replaceChildren(el("p", "nav-note", "Finished files show up here. Files from Chrome go in Downloads, YouTube files are sorted by format."));
   } else {
-    box.replaceChildren(...names.map((name) => {
-      const b = el("button", "nav-item");
-      b.innerHTML = icon(/^\d+p$/.test(name) ? "video" : "music");
-      b.append(el("span", "", name), el("span", "count", String(folders[name])));
-      if (state.folder === name) b.setAttribute("aria-current", "true");
-      b.onclick = () => {
-        state.folder = name;
-        render();
-      };
-      return b;
-    }));
+    const items = [];
+    if (fc.Downloads) items.push(item("Downloads", "Downloads", "folder", fc.Downloads));
+    if (fc.YouTube) {
+      items.push(item("YouTube", "YouTube", "video", fc.YouTube));
+      for (const f of formats) items.push(item(`YouTube/${f}`, f, /^\d+p$/.test(f) ? "video" : "music", fc[`YouTube/${f}`], true));
+    }
+    box.replaceChildren(...items);
   }
   if (state.settings) {
     $("wherePath").textContent = state.settings.downloadDir;
@@ -135,21 +149,33 @@ function renderSidebar() {
 
 // ------------------------------------------------------------------- list
 
+// Where a finished file sits inside the download folder, such as "Downloads" or "YouTube/1080p".
+function folderOf(d) {
+  if (d.source === "web") return "Downloads";
+  const dir = d.dir || d.folder || "";
+  if (dir === "YouTube" || dir.startsWith("YouTube/")) return dir;
+  return `YouTube/${d.folder}`;
+}
+
+const folderLabel = (key) => (key.startsWith("YouTube/") ? `YouTube ${key.slice(8)}` : key);
+
 // Unfinished downloads stay on top, newest first within each group.
 const rank = (d) => (d.status === "downloading" || d.status === "merging" || d.status === "converting" ? 0 : d.status === "queued" ? 1 : d.status === "paused" ? 2 : 3);
 
 function visible() {
   let items;
-  if (state.folder) items = state.downloads.filter((d) => d.status === "done" && d.folder === state.folder);
+  if (state.folder) {
+    items = state.downloads.filter((d) => d.status === "done" && (folderOf(d) === state.folder || folderOf(d).startsWith(state.folder + "/")));
+  }
   else items = state.downloads.filter(FILTERS.find((x) => x.id === state.filter).test);
   return items.sort((a, b) => rank(a) - rank(b) || b.created - a.created);
 }
 
 function renderListHead(items) {
   const f = FILTERS.find((x) => x.id === state.filter);
-  const title = state.folder ? `${state.folder} folder` : f.label;
+  const title = state.folder ? `${folderLabel(state.folder)} folder` : f.label;
   $("listTitle").textContent = title;
-  $("crumbPage").textContent = state.folder || f.label;
+  $("crumbPage").textContent = state.folder ? folderLabel(state.folder) : f.label;
   $("listCount").textContent = items.length ? String(items.length) : "";
   const actions = [];
   const btn = (label, ic, fn) => {
@@ -254,10 +280,10 @@ function statusLine(d) {
   switch (d.status) {
     case "queued": return ["loader", "Waiting for a free slot"];
     case "downloading": return ["arrowDown", d.expected ? `${size(d.downloaded)} of ${size(d.expected)}` : `${size(d.downloaded)} so far`];
-    case "paused": return ["pause", `Paused at ${pct}%`];
+    case "paused": return ["pause", d.kind === "file" && d.resumable === false ? "Paused. This server cannot resume, so it starts over" : `Paused at ${pct}%`];
     case "merging": return ["layers", `Joining video and audio ${Math.round(d.postProgress * 100)}%`];
     case "converting": return ["music", d.kind === "mp3" ? `Converting to MP3 ${Math.round(d.postProgress * 100)}%` : "Saving M4A file"];
-    case "done": return ["check", `Saved to ${d.folder}`];
+    case "done": return ["check", `Saved to ${folderOf(d).replace("/", " / ")}`];
     case "cancelled": return ["x", "Cancelled"];
     case "error": return ["alert", "Download failed"];
   }
@@ -270,7 +296,14 @@ function updateRow(r, d) {
   if (r.sig !== sig) {
     r.sig = sig;
     if (d.thumbnail && r.img.src !== d.thumbnail) r.img.src = d.thumbnail;
-    r.kind.textContent = d.folder || "";
+    r.thumb.classList.toggle("file", d.kind === "file");
+    r.img.hidden = d.kind === "file";
+    if (d.kind === "file" && !r.fileIcon) {
+      r.fileIcon = el("span", "file-icon");
+      r.fileIcon.innerHTML = icon("file");
+      r.thumb.prepend(r.fileIcon);
+    }
+    r.kind.textContent = d.kind === "file" ? (d.ext || "file").toUpperCase().slice(0, 6) : d.folder || "";
     r.title.textContent = d.title;
     r.title.title = d.title;
     renderActions(r, d);
@@ -377,7 +410,34 @@ function setHint(text, bad = false, ic = "link") {
 }
 
 function defaultHint() {
-  setHint(state.settings?.organize === false ? "Files go straight into your download folder" : "Formats are sorted into MP3, M4A and resolution folders");
+  setHint(state.settings?.organize === false
+    ? "YouTube files go into YouTube, other files into Downloads"
+    : "YouTube files are sorted by format, other files go into Downloads");
+}
+
+function isYoutube(url) {
+  try {
+    return /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+async function addFile(url) {
+  const send = $("sendBtn");
+  send.disabled = true;
+  setHint("Checking the link", false, "loader");
+  try {
+    const res = await downy.addFile(url);
+    if (!res.ok) return setHint(res.error, true, "alert");
+    $("url").value = "";
+    defaultHint();
+    state.filter = "all";
+    state.folder = null;
+    flash(res.data.id);
+  } finally {
+    send.disabled = false;
+  }
 }
 
 async function getFormats(url) {
@@ -435,7 +495,7 @@ function renderPicker() {
       b.type = "button";
       const label = o.kind === "video" ? o.label.replace(/^MP4 file, quality /, "") : o.kind === "mp3" ? "MP3" : "M4A";
       b.append(el("b", "", label), el("span", "", [o.kind === "video" ? "MP4" : "Audio", o.sizeText].filter(Boolean).join(", ")));
-      b.title = state.settings?.organize ? `${o.label}, saved to the ${o.folder} folder` : o.label;
+      b.title = state.settings?.organize ? `${o.label}, saved to YouTube / ${o.folder}` : o.label;
       b.onclick = () => startDownload(o);
       grid.append(b);
     }
@@ -530,11 +590,12 @@ function wire() {
     e.preventDefault();
     const url = $("url").value.trim();
     if (!url) {
-      setHint("Paste a YouTube link first", true, "alert");
+      setHint("Paste a link first", true, "alert");
       $("url").focus();
       return;
     }
-    getFormats(url);
+    if (isYoutube(url)) getFormats(url);
+    else addFile(url);
   });
   $("url").addEventListener("input", () => {
     if (state.picker) closePicker();
@@ -545,10 +606,14 @@ function wire() {
   document.addEventListener("paste", (e) => {
     if (e.target.closest("input") && e.target.id !== "url") return;
     const text = (e.clipboardData?.getData("text") || "").trim();
-    if (!/youtu\.?be/.test(text)) return;
+    if (!/^https?:\/\//i.test(text)) return;
     e.preventDefault();
     $("url").value = text;
-    getFormats(text);
+    if (isYoutube(text)) getFormats(text);
+    else {
+      $("url").focus();
+      setHint("Press Enter to download this file into Downloads", false, "arrowDown");
+    }
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state.picker) closePicker();

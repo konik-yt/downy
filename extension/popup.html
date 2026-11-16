@@ -25,12 +25,18 @@
   button { width: 100%; font: inherit; font-weight: 600; padding: 8px; border-radius: 10px; border: 0; color: #f1f0ff; cursor: pointer;
     background: linear-gradient(90deg, #8a7fe880, #6f8cff33), #0d0b26; box-shadow: inset 0 -8px 14px -10px #a99fffcc, inset 0 1px 0 #ffffff14; }
   button:hover { filter: brightness(1.2); }
+  .catch { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; cursor: pointer; }
+  .catch small { display: block; color: var(--muted); font-size: 12px; }
+  .catch input { width: 16px; height: 16px; accent-color: #8a7fe8; flex: none; }
 </style>
 </head>
 <body>
 <header><div class="logo">D</div><h1>Downy</h1><span id="status">Checking</span></header>
 <ul id="list"></ul>
-<footer><button id="manager">Open Downy</button></footer>
+<footer>
+  <label class="catch"><span>Catch Chrome downloads<small>Files of 1 MB or more go to Downy, into its Downloads folder</small></span><input type="checkbox" id="catch"></label>
+  <button id="manager">Open Downy</button>
+</footer>
 <script src="popup.js"></script>
 </body>
 </html>
