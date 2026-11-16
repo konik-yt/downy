@@ -125,6 +125,8 @@ if (!app.requestSingleInstanceLock()) {
     app.setLoginItemSettings({ openAtLogin: settings.get().openAtLogin, args: ["--hidden"] });
   }
 
+  // downy:// links let the extension start Downy when it is not running.
+  if (app.isPackaged) app.setAsDefaultProtocolClient("downy");
   app.on("second-instance", () => show());
 
   app.whenReady().then(async () => {

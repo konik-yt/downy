@@ -34,6 +34,16 @@ function uniquePath(file) {
   }
 }
 
+// googlevideo links carry their expiry time (seconds) in the "expire" parameter.
+function linkExpired(url) {
+  try {
+    const expire = Number(new URL(url).searchParams.get("expire"));
+    return expire > 0 && Date.now() / 1000 > expire - 10 * 60;
+  } catch {
+    return false;
+  }
+}
+
 function killTree(proc) {
   if (!proc || proc.exitCode !== null) return;
   if (process.platform === "win32") execFile("taskkill", ["/T", "/F", "/PID", String(proc.pid)], { windowsHide: true }, () => {});
@@ -371,11 +381,7 @@ class Manager extends EventEmitter {
   async runSegmented(j, rt) {
     const parts = this.partsDir();
     // Links from YouTube expire after a few hours, so a download resumed later needs fresh ones.
-    if (j.urlsAt && Date.now() - j.urlsAt > 4 * 60 * 60 * 1000) {
-      await this.refreshUrls(j);
-      j.urlsAt = Date.now();
-    }
-    j.urlsAt ||= Date.now();
+    if (j.streams.some((st) => !streamDone(st) && linkExpired(st.url))) await this.refreshUrls(j);
     for (const st of j.streams) {
       if (streamDone(st) && st.path && fs.existsSync(st.path)) continue;
       if (!st.path) st.path = path.join(parts, `${j.id}.${st.role}.${st.ext}`);
@@ -384,10 +390,7 @@ class Manager extends EventEmitter {
         connections: this.settings.get().connections,
         signal: rt.ctrl.signal,
         onBytes: (n) => (rt.bytes += n),
-        refresh: async () => {
-          await this.refreshUrls(j);
-          j.urlsAt = Date.now();
-        },
+        refresh: () => this.refreshUrls(j),
       });
       j.expected = j.streams.reduce((n, s) => n + (s.size || 0), 0);
       this.saveSoon();
