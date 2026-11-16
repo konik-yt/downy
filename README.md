@@ -59,11 +59,11 @@ When any of them is missing, Downy offers to install it with winget (`yt-dlp.yt-
 
 Each step has a short clip that shows what to click.
 
-1. Open the [latest release](https://github.com/konik-yt/downy/releases/latest) and download `Downy-Setup-<version>.exe`, or `Downy-<version>-portable.exe` to run it without installing. The exe is not code signed, so Windows SmartScreen may warn you. Click "More info", then "Run anyway".
+1. Open the [latest release](https://github.com/konik-yt/downy/releases/latest) and download `Downy-Setup-<version>.exe`. The exe is not code signed, so Windows SmartScreen may warn you. Click "More info", then "Run anyway".
 
    ![Downloading the installer from GitHub and getting past SmartScreen](docs/setup/download.webp)
 
-2. Keep the install folder and click "Install". Leave "Run Downy" checked and click "Finish". The portable exe skips this step.
+2. Keep the install folder and click "Install". Leave "Run Downy" checked and click "Finish".
 
    ![The installer](docs/setup/install.webp)
 
@@ -93,8 +93,6 @@ You can open the extension steps again from Settings, Chrome extension, Set up.
 
 Downy checks GitHub for a new release when it starts and every 4 hours. The installed app downloads the new version in the background, then shows "Restart to update" at the top right of the window and in the tray menu. Click it and Downy saves the downloads, installs the update and starts again, and the downloads that were running continue. If you don't click it, the update installs the next time you quit Downy. Settings, Updates shows the current version and has a "Check now" button.
 
-The portable exe can't replace itself, so it only shows that a new version is out, with a button that opens the release page.
-
 Versions before 2.2 have no updater. Run the new `Downy-Setup-<version>.exe` over the old one once. Your settings, history and unfinished downloads stay in `%APPDATA%\Downy`.
 
 Downy keeps its copy of the extension in `%APPDATA%\Downy\Chrome extension` and refreshes it after each update, so Chrome picks up the new extension the next time it starts. You can also click the reload button on Downy in `chrome://extensions` to load it right away. The extension only works from that folder, because that is where Downy writes the token the API asks for. If you loaded it from a zip or from this repo, Downy asks you to switch to its own copy.
@@ -105,7 +103,7 @@ Downy keeps its copy of the extension in `%APPDATA%\Downy\Chrome extension` and 
 cd app
 npm install
 npm start          # run from source
-npm run dist       # build the installer and the portable exe into app/dist
+npm run dist       # build the installer into app/dist
 ```
 
 For testing, `DOWNY_USER_DATA` points Downy at a separate settings and history folder, `DOWNY_PORT` moves the local API off 9614, `DOWNY_UPDATE_URL` points the updater at a folder with `latest.yml` and a setup exe instead of GitHub, and `DOWNY_SCREENSHOT` saves screenshots of the window every few seconds. `DOWNY_USER_DATA` and `DOWNY_SCREENSHOT` only work when Downy runs from source with `npm start`. `DOWNY_UPDATE_URL` only works in an installed build, since the updater is off when running from source.
@@ -114,7 +112,7 @@ A yt-dlp from somewhere other than winget is not upgraded by Downy. Keep it curr
 
 ## Releasing
 
-The Release workflow in `.github/workflows/release.yml` builds the installer, the portable exe and the extension zip on GitHub and publishes them as a release. Start it from the Actions tab (Release, then "Run workflow") or with:
+The Release workflow in `.github/workflows/release.yml` builds the installer on GitHub and publishes them as a release. Start it from the Actions tab (Release, then "Run workflow") or with:
 
 ```
 gh workflow run release.yml                      # next patch version, like 2.0.1
@@ -122,7 +120,7 @@ gh workflow run release.yml -f bump=minor        # like 2.1.0
 gh workflow run release.yml -f version=3.0.0     # an exact version
 ```
 
-Each release carries `latest.yml` and `Downy-Setup-<version>.exe.blockmap` next to the exes. The updater in Downy reads them, so don't delete them from a release.
+Each release carries `latest.yml` and `Downy-Setup-<version>.exe.blockmap` next to the exe. The updater in Downy reads them, so don't delete them from a release.
 
 If the version in `app/package.json` has no release yet, the workflow releases that version as it is. Otherwise it raises the version, writes it to `app/package.json` and `extension/manifest.json`, commits that to the branch and tags the commit.
 

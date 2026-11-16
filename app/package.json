@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis portable",
+    "dist": "electron-builder --win nsis",
     "dist:dir": "electron-builder --win --dir"
   },
   "build": {
@@ -20,8 +20,7 @@
     "win": {
       "icon": "src/renderer/assets/icon.ico",
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ]
     },
     "nsis": {
@@ -32,9 +31,6 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Downy",
       "artifactName": "Downy-Setup-${version}.exe"
-    },
-    "portable": {
-      "artifactName": "Downy-${version}-portable.exe"
     },
     "publish": [
       {

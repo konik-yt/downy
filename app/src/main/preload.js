@@ -33,7 +33,6 @@ contextBridge.exposeInMainWorld("downy", {
   showExtensionFolder: call("extension:show-folder"),
   checkUpdate: call("update:check"),
   restartToUpdate: call("update:restart"),
-  openReleasePage: call("update:open-page"),
   onUpdate: on("update"),
   // The confirm window (prompt.html).
   promptGet: call("prompt:get"),

@@ -1,5 +1,5 @@
-# Builds Downy on Windows and publishes a GitHub release with the installer
-# and the portable exe. There is no extension zip: the extension only works from
+# Builds Downy on Windows and publishes a GitHub release with the installer.
+# There is no extension zip: the extension only works from
 # the copy Downy writes its API token into. latest.yml and the blockmap are what
 # the updater inside Downy reads, so every release needs them. Start it from the
 # Actions tab or with `gh workflow run release.yml`.
@@ -89,9 +89,9 @@ jobs:
         working-directory: app
         run: npm ci
 
-      - name: Build the installer and the portable exe
+      - name: Build the installer
         working-directory: app
-        run: npx electron-builder --win nsis portable --publish never
+        run: npx electron-builder --win nsis --publish never
 
       - name: Commit the version
         env:
@@ -114,11 +114,11 @@ jobs:
           {
             echo "## Install"
             echo
-            echo "1. Download \`Downy-Setup-$VERSION.exe\` and run it, or run \`Downy-$VERSION-portable.exe\` without installing. The exe is not code signed, so Windows SmartScreen may warn you. Click \"More info\", then \"Run anyway\"."
+            echo "1. Download \`Downy-Setup-$VERSION.exe\` and run it. The exe is not code signed, so Windows SmartScreen may warn you. Click \"More info\", then \"Run anyway\"."
             echo "2. Install the tools Downy uses: \`winget install yt-dlp.yt-dlp Gyan.FFmpeg OpenJS.NodeJS\`"
             echo "3. Start Downy. The welcome screen walks you through adding the Chrome extension, which comes with the app."
             echo
-            echo "Downy 2.2 and later update themselves: Downy downloads the new version in the background and shows Restart to update at the top right. The portable exe says when a new version is out and links here. From 2.1 or older, run the new setup exe over the old one once. Settings, history and unfinished downloads are kept."
+            echo "Downy 2.2 and later update themselves: Downy downloads the new version in the background and shows Restart to update at the top right. From 2.1 or older, run the new setup exe over the old one once. Settings, history and unfinished downloads are kept."
             echo
             echo "## Changes"
             echo
@@ -137,7 +137,7 @@ jobs:
         run: |
           gh release create "v$VERSION" \
             "app/dist/Downy-Setup-$VERSION.exe" \
-            "app/dist/Downy-$VERSION-portable.exe" \
+\
             "app/dist/Downy-Setup-$VERSION.exe.blockmap" \
             app/dist/latest.yml \
             --target "$(git rev-parse HEAD)" \

@@ -5,7 +5,7 @@ const state = {
   settings: null,
   tools: {},
   extension: null, // { dir, version, seen, seenVersion, current }
-  update: null, // { status, current, version, percent, error, portable }
+  update: null, // { status, current, version, percent, error }
   install: null, // { running, tool, label, received, total, error, done }
   steps: 2, // steps on the first-run welcome screen: 3 when tools need installing
   toolsMode: "first", // "first" run, "missing" at a later start, or "settings"
@@ -606,7 +606,6 @@ function updateText(u) {
     case "off": return `Downy ${u.current}. Updates are off in a dev build.`;
     case "checking": return `Downy ${u.current}. Checking for updates`;
     case "latest": return `Downy ${u.current} is the latest version`;
-    case "available": return `Downy ${u.version} is out. The portable exe can't update itself, so download the new one from GitHub.`;
     case "downloading": return `Downloading Downy ${u.version || ""}, ${u.percent}%`;
     case "ready": return `Downy ${u.version} is ready. It installs when you restart or quit Downy. Running downloads continue after the restart.`;
     case "error": return `Downy ${u.current}. ${u.error}`;
@@ -621,17 +620,16 @@ function renderUpdate() {
   const action = $("updateAction");
   action.hidden = u.status === "off";
   action.disabled = u.status === "checking" || u.status === "downloading";
-  action.textContent = u.status === "ready" ? "Restart to update" : u.status === "available" ? "Open download page" : "Check now";
+  action.textContent = u.status === "ready" ? "Restart to update" : "Check now";
   const btn = $("updateBtn");
-  btn.hidden = !(u.status === "ready" || u.status === "available");
-  $("updateBtnText").textContent = u.status === "ready" ? "Restart to update" : `Get ${u.version}`;
-  btn.title = u.status === "ready" ? `Install Downy ${u.version} and start it again` : `Open the Downy ${u.version} release on GitHub`;
+  btn.hidden = u.status !== "ready";
+  $("updateBtnText").textContent = "Restart to update";
+  btn.title = `Install Downy ${u.version} and start it again`;
 }
 
 async function updateAction() {
   const u = state.update;
   if (u.status === "ready") return call(downy.restartToUpdate);
-  if (u.status === "available") return call(downy.openReleasePage);
   state.update = { ...u, status: "checking" };
   renderUpdate();
   const next = await call(downy.checkUpdate);
