@@ -11,7 +11,10 @@ npm run dev                          # Remotion Studio, with sound
 npx remotion render DownyPromo out/downy.mp4
 npx remotion render DownySetup out/downy-setup.mp4
 node scripts/make-sounds.mjs         # rebuild every sound in public/sfx
+node scripts/clips.mjs               # rebuild the README step clips in ../docs/setup
 ```
+
+The main README shows one short silent loop per install step. `src/setup/Clips.tsx` lists them: each is a frame range of a setup scene that holds its last frame, then fades out so the loop restarts cleanly. They are also compositions in the Studio, under Setup-Clips. `scripts/clips.mjs` renders them at 960 px and converts them to animated WebP at 15 fps. Pass clip names, like `node scripts/clips.mjs install`, to rebuild only those.
 
 - `src/DownyPromo.tsx` puts the scenes in order, with the pixel dissolve between them and the music under them.
 - `src/scenes/` holds one file per scene: Intro, Browse (the browser and the ask window), ManagerScene (the main window), Features and Outro. Each is also its own composition in the Studio, under Scenes.

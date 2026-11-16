@@ -7,6 +7,7 @@ import { ManagerScene } from "./scenes/ManagerScene";
 import { Outro } from "./scenes/Outro";
 import { TOTAL } from "./theme";
 import { DownySetup, SETUP, SETUP_TOTAL } from "./DownySetup";
+import { CLIPS, StepClip, clipLength } from "./setup/Clips";
 import { AddExtension } from "./setup/scenes/AddExtension";
 import { FirstStart } from "./setup/scenes/FirstStart";
 import { GetDowny } from "./setup/scenes/GetDowny";
@@ -32,6 +33,11 @@ export const RemotionRoot: React.FC = () => (
       <Composition id="AddExtension" component={AddExtension} width={1920} height={1080} fps={30} durationInFrames={SETUP.ext} />
       <Composition id="TryIt" component={TryIt} width={1920} height={1080} fps={30} durationInFrames={SETUP.tryIt} />
       <Composition id="SetupOutro" component={SetupOutro} width={1920} height={1080} fps={30} durationInFrames={SETUP.outro} />
+    </Folder>
+    <Folder name="Setup-Clips">
+      {CLIPS.map(({ id, ...clip }) => (
+        <Composition key={id} id={`clip-${id}`} component={StepClip} width={1920} height={1080} fps={30} durationInFrames={clipLength(clip)} defaultProps={clip} />
+      ))}
     </Folder>
   </>
 );
