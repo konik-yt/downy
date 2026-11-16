@@ -36,9 +36,9 @@ function eta(s) {
   if (s == null || !isFinite(s)) return "";
   s = Math.round(s);
   if (s < 60) return `${s} s left`;
-  if (s < 3600) return `${Math.round(s / 60)} min left`;
-  const h = Math.floor(s / 3600);
-  return `${h} h ${Math.round((s % 3600) / 60)} min left`;
+  const m = Math.round(s / 60); // round once, so 59.6 min becomes 1 h, not 60 min
+  if (m < 60) return `${m} min left`;
+  return `${Math.floor(m / 60)} h ${m % 60} min left`;
 }
 
 function when(ts) {
@@ -189,7 +189,7 @@ function renderListHead(items) {
   if (state.downloads.some((d) => d.status === "paused")) btn("Resume all", "play", () => call(downy.resumeAll));
   if (state.folder) btn("Open folder", "folder", () => call(downy.openFolder, state.folder));
   if ((state.filter === "done" || state.filter === "failed") && !state.folder && items.length) {
-    btn("Clear from list", "trash", () => call(downy.clear));
+    btn("Clear from list", "trash", () => call(downy.clear, state.filter));
   }
   $("listActions").replaceChildren(...actions);
 }
@@ -332,7 +332,9 @@ function updateRow(r, d) {
     if (d.stream && d.stream.count > 1) foot.push(el("span", "", d.stream.role === "audio" ? `Audio, part ${d.stream.index} of ${d.stream.count}` : `Video, part ${d.stream.index} of ${d.stream.count}`));
     foot.push(el("span", "", `${Math.floor(d.progress * 100)}%`));
   } else if (d.status === "paused") {
-    foot.push(el("span", "", "Resume continues from here, even after a restart"));
+    foot.push(el("span", "", d.kind === "file" && d.resumable === false
+      ? "Resume downloads the file again from the start"
+      : "Resume continues from here, even after a restart"));
   } else if (d.status === "done" && d.filename) {
     foot.push(el("span", "", d.filename));
   }
@@ -440,7 +442,11 @@ async function addFile(url) {
   }
 }
 
+// Only the newest lookup may open the picker, and only while its link is still in the box.
+let formatsRequest = 0;
+
 async function getFormats(url) {
+  const req = ++formatsRequest;
   const send = $("sendBtn");
   send.disabled = true;
   send.classList.add("busy");
@@ -449,6 +455,7 @@ async function getFormats(url) {
   setHint("Reading formats from YouTube", false, "loader");
   try {
     const res = await downy.formats(url);
+    if (req !== formatsRequest || $("url").value.trim() !== url) return;
     if (!res.ok) {
       setHint(res.error, true, "alert");
       return;
@@ -457,6 +464,7 @@ async function getFormats(url) {
     renderPicker();
     defaultHint();
   } finally {
+    if (req !== formatsRequest) return;
     send.disabled = false;
     send.classList.remove("busy");
     send.dataset.icon = "arrowUp";
@@ -547,6 +555,7 @@ function renderSettings() {
   if (!s) return;
   const f = $("settingsForm");
   $("setDir").textContent = s.downloadDir;
+  $("welcomeDir").textContent = s.downloadDir;
   for (const name of ["organize", "showOnStart", "closeToTray", "openAtLogin", "notify"]) f.elements[name].checked = !!s[name];
   f.elements.connections.value = s.connections;
   f.elements.maxActive.value = s.maxActive;
@@ -638,6 +647,16 @@ function wire() {
     renderSidebar();
   };
   $("setDirBtn").onclick = $("whereBtn").onclick;
+  $("welcomeDirBtn").onclick = $("whereBtn").onclick;
+
+  // First run: the welcome screen stays up until the user confirms a download folder.
+  const welcome = $("welcome");
+  welcome.addEventListener("cancel", (e) => e.preventDefault());
+  $("welcomeDone").onclick = async () => {
+    await saveSetting({ onboarded: true });
+    welcome.close();
+    $("url").focus();
+  };
   const form = $("settingsForm");
   for (const name of ["organize", "showOnStart", "closeToTray", "openAtLogin", "notify"]) {
     form.elements[name].addEventListener("change", (e) => saveSetting({ [name]: e.target.checked }));
@@ -682,4 +701,8 @@ function wire() {
     toast(`${!res.data.tools.ytdlp ? "yt-dlp" : "ffmpeg"} was not found. Open Settings to see what Downy needs.`, true);
   }
   $("url").focus();
+  if (!state.settings.onboarded) {
+    $("welcome").showModal();
+    $("welcomeDone").focus();
+  }
 })();
