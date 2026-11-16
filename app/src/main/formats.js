@@ -173,4 +173,4 @@ class InfoCache {
   }
 }
 
-module.exports = { isYoutubeUrl, humanSize, buildOptions, publicOptions, InfoCache };
+module.exports = { isYoutubeUrl, humanSize, buildOptions, publicOptions, InfoCache, TTL };

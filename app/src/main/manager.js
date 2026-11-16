@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const { spawn, execFile } = require("child_process");
 const { EventEmitter } = require("events");
 const tools = require("./tools");
-const { buildOptions } = require("./formats");
+const { buildOptions, TTL: INFO_TTL } = require("./formats");
 const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("./segmented");
 
 const ACTIVE = new Set(["downloading", "merging", "converting"]);
@@ -552,15 +552,26 @@ class Manager extends EventEmitter {
 
   // Formats that are not plain HTTP files (HLS or DASH fragments) go through yt-dlp,
   // which also downloads fragments over several connections and resumes .part files.
-  runYtdlp(j, rt) {
+  async runYtdlp(j, rt) {
     const bin = tools.find("yt-dlp");
     if (!bin) throw new Error("yt-dlp was not found");
     const s = this.settings.get();
     const dir = this.targetDir(j);
-    const base = safeName(j.title) + (j.kind === "video" ? ` (${j.height}p)` : "");
+    // yt-dlp reads % as the start of a template field, so a literal % is written %%.
+    const base = (safeName(j.title) + (j.kind === "video" ? ` (${j.height}p)` : "")).replace(/%/g, "%%");
+    // The stream links in an old info file have expired; get fresh ones, or let yt-dlp read the page.
+    let infoFile = fs.existsSync(j.infoFile || "") ? j.infoFile : "";
+    if (infoFile && Date.now() - fs.statSync(infoFile).mtimeMs > INFO_TTL) {
+      try {
+        infoFile = j.infoFile = (await this.cache.get(j.url, { fresh: true })).file;
+      } catch {
+        infoFile = "";
+      }
+      if (rt.ctrl.signal.aborted) throw new AbortError();
+    }
     const args = [
-      fs.existsSync(j.infoFile || "") ? "--load-info-json" : "--no-playlist",
-      fs.existsSync(j.infoFile || "") ? j.infoFile : j.url,
+      infoFile ? "--load-info-json" : "--no-playlist",
+      infoFile || j.url,
       "-f", j.selector, "-P", dir, "-P", `temp:${this.partsDir()}`, "-o", `${base}.%(ext)s`,
       "-N", String(s.connections), "--newline", "--progress", "--no-mtime", "--no-warnings",
       "--ffmpeg-location", tools.find("ffmpeg"),
