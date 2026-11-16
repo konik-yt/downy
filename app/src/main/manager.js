@@ -16,13 +16,24 @@ const PROGRESS_RE = /^DOWNY\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$/
 
 const CHILD_ENV = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" };
 
-function safeName(name) {
-  const clean = String(name || "video")
+function cleanName(name) {
+  return String(name || "")
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[. ]+$/, "");
-  return (clean || "video").slice(0, 150);
+}
+
+function safeName(name) {
+  return (cleanName(name) || "video").slice(0, 150);
+}
+
+// Like safeName, but a long file name is cut before its extension so the extension stays.
+function safeFileName(name) {
+  const clean = cleanName(name) || "download";
+  if (clean.length <= 150) return clean;
+  const ext = path.extname(clean).slice(0, 20);
+  return cleanName(clean.slice(0, 150 - ext.length)) + ext;
 }
 
 // Folder layout inside the download folder:
@@ -224,7 +235,7 @@ class Manager extends EventEmitter {
     // Check the link before taking the download from the browser, so a link that
     // only works inside the browser can go back to it.
     const info = await probe(st, AbortSignal.timeout(20000));
-    const name = safeName(filename || info.filename || nameFromUrl(info.finalUrl) || nameFromUrl(url) || "download");
+    const name = safeFileName(filename || info.filename || nameFromUrl(info.finalUrl) || nameFromUrl(url) || "download");
     const wantsPage = /html/.test(mime || "") || /\.html?$/i.test(name);
     if (info.type === "text/html" && !wantsPage) throw new Error("This link opens a web page, not a file");
     st.size = info.size;
@@ -407,7 +418,7 @@ class Manager extends EventEmitter {
     const base = safeName(j.title);
     if (j.kind === "video") return `${base} (${j.height}p).mp4`;
     if (j.kind === "mp3") return `${base}.mp3`;
-    if (j.kind === "file") return safeName(j.filename);
+    if (j.kind === "file") return safeFileName(j.filename);
     return `${base}.m4a`;
   }
 
