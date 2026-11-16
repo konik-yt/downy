@@ -208,6 +208,23 @@
       return this.loading;
     }
 
+    // Downy is not running: open it through its downy:// link (this still counts as
+    // part of the click, so Chrome allows it), then wait for it to answer.
+    async launchApp() {
+      this.menu.replaceChildren(el("div", "note", "Starting Downy…"));
+      location.href = "downy://show";
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 700));
+        const st = await send({ type: "status" });
+        if (st?.ok) {
+          this.loading = null;
+          this.menu.replaceChildren(el("div", "note", "Reading formats from YouTube…"));
+          return this.prefetch();
+        }
+      }
+      return { ok: false, error: "Downy did not start. Open the Downy app from the Start menu, then try again." };
+    }
+
     closeMenu() {
       this.menu.classList.remove("open");
       this.updateVisibility();
@@ -219,7 +236,8 @@
       this.updateVisibility();
       if (this.formatsFor === this.video?.id && this.formats) return this.renderFormats();
       this.menu.replaceChildren(el("div", "note", "Reading formats from YouTube…"));
-      const res = await this.prefetch();
+      let res = await this.prefetch();
+      if (res && !res.ok && res.offline) res = await this.launchApp();
       if (!this.menu.classList.contains("open")) return;
       if (res && !res.ok) this.menu.replaceChildren(el("div", "note bad", res.error));
       else this.renderFormats();
