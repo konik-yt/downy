@@ -108,7 +108,7 @@ npm start          # run from source
 npm run dist       # build the installer and the portable exe into app/dist
 ```
 
-For testing, `DOWNY_USER_DATA` points Downy at a separate settings and history folder, `DOWNY_PORT` moves the local API off 9614, `DOWNY_UPDATE_URL` points the updater at a folder with `latest.yml` and a setup exe instead of GitHub, and `DOWNY_SCREENSHOT` saves screenshots of the window every few seconds.
+For testing, `DOWNY_USER_DATA` points Downy at a separate settings and history folder, `DOWNY_PORT` moves the local API off 9614, `DOWNY_UPDATE_URL` points the updater at a folder with `latest.yml` and a setup exe instead of GitHub, and `DOWNY_SCREENSHOT` saves screenshots of the window every few seconds. `DOWNY_USER_DATA` and `DOWNY_SCREENSHOT` only work when Downy runs from source with `npm start`. `DOWNY_UPDATE_URL` only works in an installed build, since the updater is off when running from source.
 
 A yt-dlp from somewhere other than winget is not upgraded by Downy. Keep it current with `yt-dlp -U`.
 

@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, Notification, nativeImage, clipboard } = require("electron");
 const tools = require("./tools");
-const { InfoCache, isYoutubeUrl, buildOptions, publicOptions } = require("./formats");
+const { InfoCache, isYoutubeUrl, isHttpUrl, buildOptions, publicOptions } = require("./formats");
 const { Settings } = require("./settings");
 const { Manager } = require("./manager");
 const { startServer, PORT } = require("./server");
@@ -10,12 +10,15 @@ const { ExtensionCopy, openChrome } = require("./extension");
 const { Updater } = require("./updater");
 const { Installer } = require("./installer");
 const { Prompts } = require("./prompt");
+const { fromApp, lockDown } = require("./guard");
 
 const ASSETS = path.join(__dirname, "..", "renderer", "assets");
 
 app.setAppUserModelId("dev.downy.app");
 // For testing: keep data apart from the real profile, and save screenshots of the window.
-if (process.env.DOWNY_USER_DATA) app.setPath("userData", process.env.DOWNY_USER_DATA);
+// Only when run from source, so nothing can point an installed Downy at other data or run scripts in it.
+const DEV = !app.isPackaged;
+if (DEV && process.env.DOWNY_USER_DATA) app.setPath("userData", process.env.DOWNY_USER_DATA);
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -34,6 +37,10 @@ if (!app.requestSingleInstanceLock()) {
   const startHidden = process.argv.includes("--hidden");
 
   const icon = (name) => nativeImage.createFromPath(path.join(ASSETS, name));
+
+  // Covers the main window and every confirm window. The main window then opens
+  // web links in the browser with its own handler.
+  app.on("web-contents-created", (_e, contents) => lockDown(contents));
 
   function createWindow() {
     win = new BrowserWindow({
@@ -58,7 +65,7 @@ if (!app.requestSingleInstanceLock()) {
     win.once("ready-to-show", () => {
       if (!startHidden || !settings.get().onboarded) win.show(); // the first run always shows the welcome screen
     });
-    if (process.env.DOWNY_SCREENSHOT) {
+    if (DEV && process.env.DOWNY_SCREENSHOT) {
       const shoot = async (n) => {
         const img = await win.webContents.capturePage();
         fs.writeFileSync(`${process.env.DOWNY_SCREENSHOT}-${n}.png`, img.toPNG());
@@ -242,8 +249,9 @@ if (!app.requestSingleInstanceLock()) {
 
   // ----------------------------------------------------------------- IPC
 
-  const handle = (name, fn) => ipcMain.handle(name, async (_e, ...args) => {
+  const handle = (name, fn) => ipcMain.handle(name, async (e, ...args) => {
     try {
+      if (!fromApp(e)) throw new Error("This request did not come from Downy.");
       return { ok: true, data: await fn(...args) };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
@@ -294,8 +302,15 @@ if (!app.requestSingleInstanceLock()) {
     const { info } = await cache.get(url);
     return { title: info.title, thumbnail: info.thumbnail, duration: info.duration, channel: info.channel || info.uploader, options: publicOptions(buildOptions(info)) };
   });
-  handle("download", (url, option) => manager.add(url, option));
-  handle("add-file", (url) => manager.addFile({ url }));
+  handle("download", (url, option) => {
+    if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");
+    if (typeof option !== "string") throw new Error("Pick a format first");
+    return manager.add(url, option);
+  });
+  handle("add-file", (url) => {
+    if (typeof url !== "string") throw new Error("That is not a valid link"); // draftFile checks the rest
+    return manager.addFile({ url });
+  });
   handle("pause", (id) => manager.pause(id));
   handle("resume", (id) => manager.resume(id));
   handle("pause-all", () => manager.pauseAll());

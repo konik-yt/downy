@@ -97,6 +97,12 @@ function linkExpired(url) {
   }
 }
 
+// Headers as written to downloads.json. Cookies stay in memory only.
+function withoutCookie(headers) {
+  if (!headers) return headers;
+  return Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== "cookie"));
+}
+
 function removeQuietly(file) {
   try {
     fs.rmSync(file, { force: true });
@@ -118,6 +124,9 @@ class Manager extends EventEmitter {
     this.file = path.join(dataDir, "downloads.json");
     this.jobs = new Map();
     this.runtime = new Map(); // id -> { ctrl, proc, bytes, samples }
+    // id -> the browser's Cookie header for a file download. Never saved, so after a
+    // restart the download goes on without it.
+    this.cookies = new Map();
     this.load();
     this.sweepParts();
     this.ticker = setInterval(() => this.tick(), 500);
@@ -131,15 +140,25 @@ class Manager extends EventEmitter {
       rows = JSON.parse(fs.readFileSync(this.file, "utf8"));
     } catch {}
     if (!Array.isArray(rows)) rows = [];
+    let hadCookies = false;
     for (const j of rows) {
       if (!j || typeof j !== "object" || !j.id) continue;
       if (j.streams && !Array.isArray(j.streams)) j.streams = [];
+      // Older versions saved the browser's cookies here.
+      for (const st of j.streams || []) {
+        const clean = withoutCookie(st?.headers);
+        if (clean && Object.keys(clean).length !== Object.keys(st.headers).length) {
+          st.headers = clean;
+          hadCookies = true;
+        }
+      }
       // Anything that was running when Downy closed comes back paused.
       if (ACTIVE.has(j.status) || j.status === "queued") j.status = j.status === "queued" ? "queued" : "paused";
       j.speed = 0;
       j.eta = null;
       this.jobs.set(j.id, j);
     }
+    if (hadCookies) this.save();
   }
 
   save() {
@@ -147,7 +166,7 @@ class Manager extends EventEmitter {
     this.saveTimer = null;
     const rows = [...this.jobs.values()].map((j) => ({
       ...j,
-      streams: j.streams?.map((s) => ({ ...s, segments: s.segments?.map(({ start, end, pos }) => ({ start, end, pos })) })),
+      streams: j.streams?.map((s) => ({ ...s, headers: withoutCookie(s.headers), segments: s.segments?.map(({ start, end, pos }) => ({ start, end, pos })) })),
     }));
     try {
       fs.mkdirSync(this.dataDir, { recursive: true });
@@ -241,6 +260,8 @@ class Manager extends EventEmitter {
 
   // custom: { dir, name } from the confirm window. dir is an absolute folder; name has no folder in it.
   commit(job, custom = {}) {
+    if (job.cookies) this.cookies.set(job.id, job.cookies);
+    delete job.cookies;
     if (custom.dir && path.isAbsolute(String(custom.dir))) job.customDir = path.resolve(String(custom.dir));
     if (custom.name && cleanName(custom.name)) job.customName = cleanName(custom.name);
     if (job.customName && job.kind === "file") job.title = job.filename = this.targetName(job);
@@ -289,12 +310,11 @@ class Manager extends EventEmitter {
       Accept: "*/*",
     };
     if (referrer) headers.Referer = referrer;
-    if (cookies) headers.Cookie = cookies;
     const st = { role: "file", formatId: "", ext: "", protocol: parsed.protocol.slice(0, -1), url, headers, size: 0, path: "", segments: null, index: 0 };
 
     // Check the link before taking the download from the browser, so a link that
     // only works inside the browser can go back to it.
-    const info = await probe(st, AbortSignal.timeout(20000));
+    const info = await probe(cookies ? { ...st, headers: { ...headers, Cookie: cookies } } : st, AbortSignal.timeout(20000));
     const name = safeFileName(filename || info.filename || nameFromUrl(info.finalUrl) || nameFromUrl(url) || "download");
     const wantsPage = /html/.test(mime || "") || /\.html?$/i.test(name);
     if (info.type === "text/html" && !wantsPage) throw new Error("This link opens a web page, not a file");
@@ -308,6 +328,7 @@ class Manager extends EventEmitter {
       kind: "file", ext: st.ext, label: st.ext ? st.ext.toUpperCase() : "File", folder: FILES_DIR,
       mode: "segmented", streams: [st], expected: st.size || 0, downloaded: 0, speed: 0, eta: null,
       status: "queued", error: "", filepath: "", created: Date.now(), finished: null, resumable: info.ranges,
+      cookies: cookies || "", // commit() moves this into this.cookies
     };
     return job;
   }
@@ -614,6 +635,8 @@ class Manager extends EventEmitter {
 
   async runSegmented(j, rt) {
     const parts = this.partsDir();
+    const cookie = this.cookies.get(j.id);
+    if (cookie) for (const st of j.streams) st.headers = { ...st.headers, Cookie: cookie };
     // Links from YouTube expire after a few hours, so a download resumed later needs fresh ones.
     if (j.kind !== "file" && j.streams.some((st) => !streamDone(st) && linkExpired(st.url))) await this.refreshUrls(j);
     for (const st of j.streams) {
@@ -734,9 +757,10 @@ class Manager extends EventEmitter {
       }
       if (rt.ctrl.signal.aborted) throw new AbortError();
     }
+    // yt-dlp would otherwise load a yt-dlp.conf from the save folder given to -P,
+    // where anything that downloads into that folder could have put one.
     const args = [
-      infoFile ? "--load-info-json" : "--no-playlist",
-      infoFile || j.url,
+      "--ignore-config",
       "-f", j.selector, "-P", dir, "-P", `temp:${j.tempDir}`, "-o", `${base}.%(ext)s`,
       "-N", String(s.connections), "--newline", "--progress", "--no-mtime", "--no-warnings",
       "--ffmpeg-location", tools.find("ffmpeg"),
@@ -748,6 +772,10 @@ class Manager extends EventEmitter {
     if (j.kind === "video") args.push("--merge-output-format", "mp4");
     if (j.kind === "mp3") args.push("-x", "--audio-format", "mp3", "--audio-quality", "0");
     if (j.kind === "audio" && j.streams?.[0]?.ext !== "m4a") args.push("-x", "--audio-format", "m4a");
+    // The info file is the value of --load-info-json. A page URL goes last, after "--",
+    // so yt-dlp reads it as a URL even if it starts with "-".
+    if (infoFile) args.push("--load-info-json", infoFile);
+    else args.push("--no-playlist", "--", j.url);
     return new Promise((resolve, reject) => {
       const proc = spawn(bin, args, { windowsHide: true, env: CHILD_ENV });
       rt.proc = proc;
@@ -797,6 +825,7 @@ class Manager extends EventEmitter {
 
   // Deletes a job's temporary files. Only ever touches files in a parts folder.
   cleanup(j) {
+    this.cookies.delete(j.id);
     for (const st of j.streams || []) {
       if (st.path && this.isPartsDir(path.dirname(st.path))) removeQuietly(st.path);
       delete st.headers; // they can hold the browser's cookies and are not needed any more

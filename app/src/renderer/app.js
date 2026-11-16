@@ -823,17 +823,29 @@ function wire() {
   });
 
   // Pasting a YouTube link anywhere fills the box and reads its formats.
-  document.addEventListener("paste", (e) => {
-    if (e.target.closest("input") && e.target.id !== "url") return;
-    const text = (e.clipboardData?.getData("text") || "").trim();
-    if (!/^https?:\/\//i.test(text)) return;
-    e.preventDefault();
+  const takeLink = (text) => {
     $("url").value = text;
     if (isYoutube(text)) getFormats(text);
     else {
       $("url").focus();
       setHint("Press Enter to download this file into Downloads", false, "arrowDown");
     }
+  };
+  document.addEventListener("paste", (e) => {
+    if (e.target.closest("input") && e.target.id !== "url") return;
+    const text = (e.clipboardData?.getData("text") || "").trim();
+    if (!/^https?:\/\//i.test(text)) return;
+    e.preventDefault();
+    takeLink(text);
+  });
+  // A dropped link or file must not open in the window. A dropped web link works like a pasted one.
+  document.addEventListener("dragover", (e) => e.preventDefault());
+  document.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const data = e.dataTransfer;
+    const listed = (data?.getData("text/uri-list") || "").split(/\r?\n/).find((l) => l.trim() && !l.startsWith("#"));
+    const text = (listed || data?.getData("text/plain") || "").trim();
+    if (/^https?:\/\//i.test(text)) takeLink(text);
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state.picker) closePicker();

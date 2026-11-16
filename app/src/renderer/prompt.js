@@ -115,6 +115,9 @@ function fit() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") downy.promptCancel();
   });
+  // A dropped link or file must not open in the window.
+  document.addEventListener("dragover", (e) => e.preventDefault());
+  document.addEventListener("drop", (e) => e.preventDefault());
   const name = $("name");
   name.focus();
   name.select();
