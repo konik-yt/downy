@@ -16,7 +16,9 @@ const ASSETS = path.join(__dirname, "..", "renderer", "assets");
 
 app.setAppUserModelId("dev.downy.app");
 // For testing: keep data apart from the real profile, and save screenshots of the window.
-if (process.env.DOWNY_USER_DATA) app.setPath("userData", process.env.DOWNY_USER_DATA);
+// Only when run from source, so nothing can point an installed Downy at other data or run scripts in it.
+const DEV = !app.isPackaged;
+if (DEV && process.env.DOWNY_USER_DATA) app.setPath("userData", process.env.DOWNY_USER_DATA);
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -63,7 +65,7 @@ if (!app.requestSingleInstanceLock()) {
     win.once("ready-to-show", () => {
       if (!startHidden || !settings.get().onboarded) win.show(); // the first run always shows the welcome screen
     });
-    if (process.env.DOWNY_SCREENSHOT) {
+    if (DEV && process.env.DOWNY_SCREENSHOT) {
       const shoot = async (n) => {
         const img = await win.webContents.capturePage();
         fs.writeFileSync(`${process.env.DOWNY_SCREENSHOT}-${n}.png`, img.toPNG());
