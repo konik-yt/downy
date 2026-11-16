@@ -2,13 +2,14 @@
 
 # Downy
 
-A download manager in the style of IDM. A Chrome extension puts a "Download this video" button over YouTube videos and hands normal Chrome downloads to the Downy desktop app, which opens, shows the progress and saves the file.
+A download manager in the style of IDM. A Chrome extension puts a "Download this video" button over videos on YouTube and the other sites yt-dlp supports, and hands normal Chrome downloads to the Downy desktop app, which opens, shows the progress and saves the file.
 
 ## What it does
 
 - Downloads each file over several connections at once (8 by default). When a connection finishes its part, it takes half of the largest part still running, so all connections stay busy until the end.
 - Pauses and resumes any download. Progress is saved to disk every second, so a download picks up where it stopped even after Downy or Windows restarts.
 - Runs several downloads at the same time (3 by default) and queues the rest.
+- Shows the button over videos on any site yt-dlp supports, such as Vimeo, Reddit, X, Dailymotion or Streamable, when the pointer is over the video. Embedded players get it too. On a site yt-dlp doesn't know, no button shows: Downy asks yt-dlp about the page once, with its catch-all "generic" extractor turned off, and that answer comes back in about a second. The extension passes the site's cookies to yt-dlp, so videos that need a sign-in work. YouTube never gets cookies, because yt-dlp warns that they can get an account flagged.
 - Takes over normal Chrome downloads of 1 MB or more, with the page's cookies and referrer, so signed-in downloads work. Chrome keeps the download when Downy is closed or the link only works inside the browser. The extension popup has a switch to turn this off. You can also paste any file link into Downy.
 - Sorts finished files inside the download folder you choose:
 
@@ -16,6 +17,8 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
   Downloads\          files from Chrome and pasted file links
   YouTube\
     MP3\  M4A\  720p\  1080p\  2160p\ ...
+  Videos\             videos from every other site, sorted the same way
+    720p\  1080p\  Best\ ...
   ```
 - Lives in the system tray. Closing the window keeps downloads running. Quit from the tray icon.
 - Can start with Windows (Settings, Start with Windows).
@@ -28,7 +31,11 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
   - `src/renderer/` is the window. The background is the Nyx pixel sky from T3 Code.
   - `src/main/updater.js` checks GitHub releases and installs updates with electron-updater.
   - `src/main/extension.js` copies the bundled extension into Downy's data folder and tracks whether Chrome has loaded it.
-- `extension/` is the Chrome extension: the button over the player, the quality menu, the hand off of Chrome downloads and a popup with recent downloads. The installer bundles it.
+- `extension/` is the Chrome extension. The installer bundles it.
+  - `overlay.js` is the button and the quality menu.
+  - `content.js` puts it over the YouTube player, and `video.js` over videos on every other site.
+  - `background.js` talks to Downy and hands Chrome downloads over to it.
+  - `popup.html` lists recent downloads.
 
 ## Requirements
 
