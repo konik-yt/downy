@@ -304,6 +304,7 @@ class Manager extends EventEmitter {
   }
 
   async shutdown() {
+    this.stopping = true; // jobs that stop now must not start the next queued one
     clearInterval(this.ticker);
     for (const [id, rt] of this.runtime) {
       const j = this.jobs.get(id);
@@ -323,6 +324,7 @@ class Manager extends EventEmitter {
   }
 
   schedule() {
+    if (this.stopping) return;
     const max = Math.max(1, this.settings.get().maxActive);
     const queued = [...this.jobs.values()].filter((j) => j.status === "queued").sort((a, b) => a.created - b.created);
     for (const j of queued) {
