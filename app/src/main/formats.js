@@ -1,6 +1,7 @@
 // Reads video info with yt-dlp and turns it into the list of formats Downy offers.
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { execFile } = require("child_process");
 const tools = require("./tools");
 
@@ -176,7 +177,9 @@ class InfoCache {
     if (!fresh && hit && Date.now() - hit.at < TTL) return hit;
     if (this.pending.has(url)) return this.pending.get(url);
     const job = this.extract(url, this.cookies.get(url)).then((info) => {
-      const file = path.join(this.dir, `${info.id}.info.json`);
+      // Named after the URL, since the video id comes from the site and could hold "..\".
+      const name = crypto.createHash("sha256").update(url).digest("hex").slice(0, 32);
+      const file = path.join(this.dir, `${name}.info.json`);
       fs.writeFileSync(file, JSON.stringify(info));
       const entry = { at: Date.now(), info, file };
       this.entries.set(url, entry);
