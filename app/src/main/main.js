@@ -123,13 +123,17 @@ if (!app.requestSingleInstanceLock()) {
     return `${(n / 1024 / 1024).toFixed(1)} MB/s`;
   }
 
+  // The portable build runs from a temp folder that is deleted on exit, so register
+  // the .exe the user started, which electron-builder passes in this variable.
+  const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+
   function applyLogin() {
     if (!app.isPackaged) return; // a dev build would register the bare electron.exe
-    app.setLoginItemSettings({ openAtLogin: settings.get().openAtLogin, args: ["--hidden"] });
+    app.setLoginItemSettings({ openAtLogin: settings.get().openAtLogin, path: exePath, args: ["--hidden"] });
   }
 
   // downy:// links let the extension start Downy when it is not running.
-  if (app.isPackaged) app.setAsDefaultProtocolClient("downy");
+  if (app.isPackaged) app.setAsDefaultProtocolClient("downy", exePath, []);
   app.on("second-instance", () => show());
 
   app.whenReady().then(async () => {
