@@ -2,15 +2,23 @@
 
 # Downy
 
-A download manager in the style of IDM. A Chrome extension puts a "Download this video" button over videos on YouTube and the other sites yt-dlp supports, and hands normal Chrome downloads to the Downy desktop app, which opens, shows the progress and saves the file.
+A download manager for Windows in the style of IDM. Downy splits each file into segments, downloads them over several connections at once, and saves its progress to disk every second, so a paused or interrupted download picks up where it stopped, even after a crash or a Windows restart. A Chrome extension hands Chrome's downloads over to the desktop app.
 
-## What it does
+## How the downloader works
 
-- Downloads each file over several connections at once (8 by default). When a connection finishes its part, it takes half of the largest part still running, so all connections stay busy until the end.
-- Pauses and resumes any download. Progress is saved to disk every second, so a download picks up where it stopped even after Downy or Windows restarts.
-- Runs several downloads at the same time (3 by default) and queues the rest.
-- Shows the button over videos on any site yt-dlp supports, such as Vimeo, Reddit, X, Dailymotion or Streamable, when the pointer is over the video. Embedded players get it too. On a site yt-dlp doesn't know, no button shows: Downy asks yt-dlp about the page once, with its catch-all "generic" extractor turned off, and that answer comes back in about a second. The extension passes the site's cookies to yt-dlp, so videos that need a sign-in work. YouTube never gets cookies, because yt-dlp warns that they can get an account flagged.
+The code is in `app/src/main/segmented.js`.
+
+- Downy first asks the server for the file size and checks that it answers Range requests. It then makes a part file of the full size and splits it into one segment per connection (8 by default). Each connection fetches its segment in Range requests of up to 10 MB and writes the bytes straight to their offset in the part file.
+- When a connection finishes its segment, it takes the back half of the largest segment still running, as long as each half keeps at least 1 MB. All connections stay busy until the last byte, so one slow connection doesn't hold up the end of the download.
+- A failed request is retried up to 8 times, with a wait that doubles each time up to 15 seconds. Answers 429 and 5xx count as worth retrying. When a link has expired (403 or 410), Downy gets a fresh one and the connection carries on from its offset.
+- The queue saves the start, end and current offset of every segment to disk every second. A download that was paused, or cut off by a crash or a restart, resumes from those offsets. If the part file was deleted, that stream starts over.
+- A server without Range support gets a single connection, which starts from zero again after an interruption.
+
+## What else it does
+
+- Runs several downloads at the same time (3 by default) and queues the rest. You can pause and resume one download or all of them.
 - Takes over normal Chrome downloads of 1 MB or more, with the page's cookies and referrer, so signed-in downloads work. Chrome keeps the download when Downy is closed or the link only works inside the browser. The extension popup has a switch to turn this off. You can also paste any file link into Downy.
+- Downloads videos from the sites yt-dlp supports, such as Vimeo, Reddit, X, Dailymotion or YouTube. The extension shows a "Download this video" button when the pointer is over a video, embedded players included. Downy uses yt-dlp only to read the page and list the formats. It downloads plain HTTP streams with its own segmented downloader and joins video and audio with ffmpeg. Formats that come as HLS or DASH fragments go through yt-dlp. On a site yt-dlp doesn't know, no button shows. Downy asks yt-dlp about the page once, with its catch-all "generic" extractor turned off, and gets an answer in about a second. The extension passes the site's cookies to yt-dlp, so videos that need a sign-in work. YouTube never gets cookies, because yt-dlp warns that they can get an account flagged.
 - Asks before each download from Chrome in a small window near the top of the screen. After you pick a quality in the menu on the page, or when Chrome hands over a file, the window shows the file name, the folder and, for a video, the format, and you can change all three. Enter starts the download and Esc cancels it. Turn it off in Settings, Ask before each download.
 - Sorts finished files inside the download folder you choose:
 
