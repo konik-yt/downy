@@ -442,7 +442,11 @@ async function addFile(url) {
   }
 }
 
+// Only the newest lookup may open the picker, and only while its link is still in the box.
+let formatsRequest = 0;
+
 async function getFormats(url) {
+  const req = ++formatsRequest;
   const send = $("sendBtn");
   send.disabled = true;
   send.classList.add("busy");
@@ -451,6 +455,7 @@ async function getFormats(url) {
   setHint("Reading formats from YouTube", false, "loader");
   try {
     const res = await downy.formats(url);
+    if (req !== formatsRequest || $("url").value.trim() !== url) return;
     if (!res.ok) {
       setHint(res.error, true, "alert");
       return;
@@ -459,6 +464,7 @@ async function getFormats(url) {
     renderPicker();
     defaultHint();
   } finally {
+    if (req !== formatsRequest) return;
     send.disabled = false;
     send.classList.remove("busy");
     send.dataset.icon = "arrowUp";
