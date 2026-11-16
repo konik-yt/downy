@@ -19,6 +19,13 @@ if (process.env.DOWNY_USER_DATA) app.setPath("userData", process.env.DOWNY_USER_
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
+  // Opened from a shortcut, Downy starts in its install folder, which users cannot write to
+  // under Program Files. Child processes inherit this folder, and yt-dlp writes temp files
+  // into it when testing formats, so move to the data folder.
+  try {
+    fs.mkdirSync(app.getPath("userData"), { recursive: true });
+    process.chdir(app.getPath("userData"));
+  } catch {}
   let win = null;
   let tray = null;
   let quitting = false;
