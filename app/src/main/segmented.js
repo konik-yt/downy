@@ -89,7 +89,7 @@ async function probe(st, signal) {
  * opts: connections, signal, onBytes(n), refresh() -> Promise that updates st.url/headers.
  */
 async function downloadStream(st, opts) {
-  const { signal, onBytes } = opts;
+  const { signal } = opts;
   let refreshing = null;
   const refresh = () => (refreshing ??= opts.refresh().finally(() => setTimeout(() => (refreshing = null), 5000)));
 
