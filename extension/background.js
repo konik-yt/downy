@@ -70,15 +70,36 @@ async function pageCookies(url) {
   }
   if (/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i.test(host)) return [];
   const labels = host.split(".");
-  // Skip short second-level labels like the "co" in bbc.co.uk, so it never asks for all of co.uk.
-  const domain = labels.length > 2 && labels[1].length > 3 ? labels.slice(1).join(".") : host;
+  const parent = labels.slice(1).join(".");
+  // Skip short second-level labels like the "co" in bbc.co.uk, so it never asks for all of co.uk,
+  // and hosting where each subdomain belongs to someone else.
+  const shared = SHARED_HOSTS.some((s) => parent === s || parent.endsWith("." + s));
+  const withParent = labels.length >= 3 && labels[1].length > 3 && !shared;
   try {
-    const list = await chrome.cookies.getAll({ domain });
-    return list.map(({ domain, hostOnly, path, secure, expirationDate, name, value }) => ({ domain, hostOnly, path, secure, expirationDate, name, value }));
+    const lists = await Promise.all([
+      chrome.cookies.getAll({ url }),
+      withParent ? chrome.cookies.getAll({ domain: parent }) : [],
+    ]);
+    const seen = new Set();
+    const out = [];
+    for (const { domain, hostOnly, path, secure, expirationDate, name, value } of lists.flat()) {
+      const key = `${domain}\t${path}\t${name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ domain, hostOnly, path, secure, expirationDate, name, value });
+    }
+    return out;
   } catch {
     return [];
   }
 }
+
+// Sites where anyone can get a subdomain, so a page there never gets the cookies of the whole site.
+const SHARED_HOSTS = [
+  "github.io", "gitlab.io", "pages.dev", "vercel.app", "netlify.app", "herokuapp.com", "web.app",
+  "firebaseapp.com", "blogspot.com", "wordpress.com", "amazonaws.com", "cloudfront.net",
+  "azurewebsites.net", "workers.dev", "glitch.me", "repl.co", "onrender.com", "fly.dev", "appspot.com",
+];
 
 // ------------------------------------------------------- Chrome downloads
 
