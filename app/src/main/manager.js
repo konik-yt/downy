@@ -181,6 +181,15 @@ class Manager extends EventEmitter {
     }, 150);
   }
 
+  // Info files that yt-dlp may still need to resume a download.
+  infoFiles() {
+    const keep = new Set();
+    for (const j of this.jobs.values()) {
+      if (j.infoFile && j.status !== "done" && j.status !== "cancelled") keep.add(path.resolve(j.infoFile));
+    }
+    return keep;
+  }
+
   folderCounts() {
     const counts = {};
     for (const j of this.jobs.values()) {

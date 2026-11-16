@@ -138,6 +138,7 @@ class InfoCache {
   }
 
   async get(url, { fresh = false } = {}) {
+    for (const [key, e] of this.entries) if (Date.now() - e.at >= TTL) this.entries.delete(key);
     const hit = this.entries.get(url);
     if (!fresh && hit && Date.now() - hit.at < TTL) return hit;
     if (this.pending.has(url)) return this.pending.get(url);
@@ -150,6 +151,21 @@ class InfoCache {
     }).finally(() => this.pending.delete(url));
     this.pending.set(url, job);
     return job;
+  }
+
+  // Deletes info files older than the TTL that no download in `keep` (a Set of paths) still needs.
+  prune(keep) {
+    let names = [];
+    try {
+      names = fs.readdirSync(this.dir);
+    } catch {}
+    for (const name of names) {
+      if (!name.endsWith(".info.json")) continue;
+      const file = path.join(this.dir, name);
+      try {
+        if (!keep.has(path.resolve(file)) && Date.now() - fs.statSync(file).mtimeMs > TTL) fs.rmSync(file, { force: true });
+      } catch {}
+    }
   }
 
   extract(url) {
