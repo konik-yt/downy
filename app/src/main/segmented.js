@@ -106,6 +106,10 @@ async function downloadStream(st, opts) {
 
   if (!st.ranges || !st.size) return single(st, opts);
 
+  if (st.partial) {
+    st.segments = null; // left over from a single-connection try
+    delete st.partial;
+  }
   if (!st.segments || !st.segments.length) st.segments = split(st.size, opts.connections);
   for (const s of st.segments) s.busy = false;
 
@@ -220,29 +224,43 @@ function runWorkers(st, fh, opts) {
 }
 
 // For servers without Range support: one connection, restarts from zero.
+// st.partial stays set until the body has ended, so a stopped download is
+// never taken for a finished one.
 async function single(st, { signal, onBytes }) {
-  st.segments = [{ start: 0, end: Math.max(0, (st.size || 1) - 1), pos: 0 }];
-  const res = await fetch(st.url, { headers: headersFor(st), signal });
-  if (!res.ok) throw new Error(`The server answered ${res.status}`);
+  st.partial = true;
+  st.segments = [{ start: 0, end: st.size ? st.size - 1 : Number.MAX_SAFE_INTEGER, pos: 0 }];
+  // Without a Range header fetch asks for gzip and unpacks it, which changes the file.
+  const res = await fetch(st.url, { headers: { ...headersFor(st), "Accept-Encoding": "identity" }, signal });
+  if (!res.ok) {
+    res.body?.cancel().catch(() => {});
+    throw new Error(`The server answered ${res.status}`);
+  }
   const out = fs.createWriteStream(st.path);
+  let writeError = null;
+  const failed = new Promise((_, reject) => out.once("error", (e) => reject((writeError = e))));
+  failed.catch(() => {});
   try {
     for await (const chunk of res.body) {
-      if (!out.write(Buffer.from(chunk))) await new Promise((r) => out.once("drain", r));
+      if (writeError) throw writeError;
+      if (!out.write(Buffer.from(chunk))) await Promise.race([new Promise((r) => out.once("drain", r)), failed]);
       st.segments[0].pos += chunk.byteLength;
       onBytes(chunk.byteLength);
     }
   } catch (e) {
+    if (writeError) throw writeError;
     if (signal.aborted) throw new AbortError();
     throw e;
   } finally {
-    await new Promise((r) => out.end(r));
+    if (!out.destroyed) await new Promise((r) => out.end(r));
   }
+  if (writeError) throw writeError;
   st.size = st.segments[0].pos;
   st.segments[0].end = st.size - 1;
+  delete st.partial;
 }
 
 function streamDone(st) {
-  return !!st.segments?.length && st.segments.every((s) => s.pos > s.end);
+  return !st.partial && !!st.segments?.length && st.segments.every((s) => s.pos > s.end);
 }
 
 function streamBytes(st) {
