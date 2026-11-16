@@ -7,14 +7,14 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable nsis"
+    "dist": "electron-builder --win nsis portable",
+    "dist:dir": "electron-builder --win --dir"
   },
   "build": {
     "appId": "dev.downy.app",
     "productName": "Downy",
     "files": [
       "src/**/*",
-      "node_modules/@fontsource-variable/inter/**/*",
       "package.json"
     ],
     "win": {
@@ -25,12 +25,20 @@
       ]
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Downy",
       "artifactName": "Downy-Setup-${version}.exe"
     },
     "portable": {
       "artifactName": "Downy-${version}-portable.exe"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "dist"
     }
   },
   "dependencies": {
