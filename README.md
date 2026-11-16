@@ -14,7 +14,8 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
 
   ```
   Downloads\          files from Chrome and pasted file links
-  YouTube    MP3\  M4A\  720p\  1080p\  2160p\ ...
+  YouTube\
+    MP3\  M4A\  720p\  1080p\  2160p\ ...
   ```
 - Lives in the system tray. Closing the window keeps downloads running. Quit from the tray icon.
 - Can start with Windows (Settings, Start with Windows).
