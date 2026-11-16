@@ -175,8 +175,11 @@ if (!app.requestSingleInstanceLock()) {
     manager.schedule();
   });
 
-  // Keep running in the tray when the window closes.
-  app.on("window-all-closed", () => {});
+  // With "Keep running in the tray" on, closing only hides the window, so this runs
+  // when that setting is off. Quit through before-quit so downloads are saved as paused.
+  app.on("window-all-closed", () => {
+    if (!settings?.get().closeToTray) app.quit();
+  });
 
   app.on("before-quit", async (e) => {
     if (quitting) return;
