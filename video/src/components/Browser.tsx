@@ -15,7 +15,31 @@ export const homeCard = (i: number) => {
 };
 export const PLAYER = { x: B.x + 40, y: B.y + B.chrome + 24, w: 1060, h: 596 };
 
-const Chrome: React.FC<{ url: string; tab: string }> = ({ url, tab }) => (
+const Favicon: React.FC<{ kind: "yt" | "gh" | "ext" | "blank" }> = ({ kind }) =>
+  kind === "yt" ? (
+    <div style={{ width: 16, height: 16, borderRadius: 4, background: "#e5484d", display: "grid", placeItems: "center" }}>
+      <div style={{ width: 0, height: 0, borderLeft: "6px solid #fff", borderTop: "4px solid transparent", borderBottom: "4px solid transparent", marginLeft: 1 }} />
+    </div>
+  ) : kind === "gh" ? (
+    <div style={{ width: 16, height: 16, borderRadius: "50%", background: "#f1f0ff", display: "grid", placeItems: "center" }}>
+      <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#0e0d1a" }} />
+    </div>
+  ) : kind === "ext" ? (
+    <div style={{ width: 16, height: 16, borderRadius: 4, background: "#4a5d8f", display: "grid", placeItems: "center" }}>
+      <div style={{ width: 8, height: 8, borderRadius: 2, background: "#c9d4ff" }} />
+    </div>
+  ) : (
+    <div style={{ width: 16, height: 16, borderRadius: "50%", border: "1.5px solid #6f6c8c", boxSizing: "border-box" }} />
+  );
+
+// The browser's tab strip and toolbar. `address` replaces the plain URL, for typing or pasting into it.
+export const Chrome: React.FC<{ url: string; tab: string; icon?: "yt" | "gh" | "ext" | "blank"; address?: React.ReactNode; focus?: number }> = ({
+  url,
+  tab,
+  icon = "yt",
+  address,
+  focus = 0,
+}) => (
   <div style={{ height: B.chrome, background: "#0e0d1a", borderBottom: "1px solid #ffffff10" }}>
     <div style={{ height: 44, display: "flex", alignItems: "flex-end", padding: "0 14px", gap: 8 }}>
       <div style={{ display: "flex", gap: 8, alignSelf: "center", marginRight: 14 }}>
@@ -37,9 +61,7 @@ const Chrome: React.FC<{ url: string; tab: string }> = ({ url, tab }) => (
           fontSize: 14,
         }}
       >
-        <div style={{ width: 16, height: 16, borderRadius: 4, background: "#e5484d", display: "grid", placeItems: "center" }}>
-          <div style={{ width: 0, height: 0, borderLeft: "6px solid #fff", borderTop: "4px solid transparent", borderBottom: "4px solid transparent", marginLeft: 1 }} />
-        </div>
+        <Favicon kind={icon} />
         <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>{tab}</span>
         <Icon name="x" size={14} color={C.muted} />
       </div>
@@ -60,10 +82,11 @@ const Chrome: React.FC<{ url: string; tab: string }> = ({ url, tab }) => (
           padding: "0 16px",
           fontSize: 15,
           color: C.soft,
+          boxShadow: focus ? `0 0 0 ${2 * focus}px #8a7fe8` : undefined,
         }}
       >
-        <Icon name="lock" size={14} color={C.muted} />
-        <span>{url}</span>
+        <Icon name={address ? "search" : "lock"} size={14} color={C.muted} />
+        {address ?? <span>{url}</span>}
       </div>
       <Img src={staticFile("icon.png")} style={{ width: 22, height: 22 }} />
       <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg, #8fdcc0, #6f8cff)" }} />

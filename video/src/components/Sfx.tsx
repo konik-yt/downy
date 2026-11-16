@@ -16,7 +16,9 @@ export type SoundName =
   | "logo"
   | "thump"
   | "sparkle"
-  | "shimmer";
+  | "shimmer"
+  | "toggle"
+  | "key";
 
 // Plays one sound effect starting at `at`, a frame in the parent's timeline.
 export const Sfx: React.FC<{ at: number; name: SoundName; volume?: number }> = ({ at, name, volume = 1 }) => (

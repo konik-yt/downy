@@ -11,6 +11,6 @@ const composition = await selectComposition({ serveUrl, id });
 mkdirSync("out/stills", { recursive: true });
 for (const f of frames) {
   const output = `out/stills/${id}-${f}.png`;
-  await renderStill({ serveUrl, composition, frame: Number(f), output, scale: 0.5 });
+  await renderStill({ serveUrl, composition, frame: Number(f), output, scale: Number(process.env.SCALE ?? 0.5) });
   console.log(output);
 }
