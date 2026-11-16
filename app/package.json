@@ -1,7 +1,7 @@
 {
   "name": "downy",
   "productName": "Downy",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Downy download manager for YouTube videos",
   "main": "src/main/main.js",
   "private": true,
