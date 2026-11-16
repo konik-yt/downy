@@ -44,7 +44,7 @@ if (!app.requestSingleInstanceLock()) {
     win.removeMenu();
     win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
     win.once("ready-to-show", () => {
-      if (!startHidden) win.show();
+      if (!startHidden || !settings.get().onboarded) win.show(); // the first run always shows the welcome screen
     });
     if (process.env.DOWNY_SCREENSHOT) {
       const shoot = async (n) => {
@@ -167,6 +167,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     settings.on("change", () => {
       applyLogin();
+      manager.sweepParts(); // the download folder may have changed
       manager.schedule();
       win?.webContents.send("settings", settings.get());
     });

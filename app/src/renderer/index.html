@@ -42,7 +42,6 @@
 
   <main class="main" id="main">
     <section class="hero" id="hero">
-      <div class="wordmark" aria-hidden="true">Downy</div>
       <h1>What should we download?</h1>
       <p class="sub">Paste any link, or download in Chrome as usual and Downy takes over</p>
     </section>
@@ -149,6 +148,23 @@
 
     <div class="tools" id="toolsList"></div>
   </form>
+</dialog>
+
+<dialog class="modal welcome" id="welcome" aria-labelledby="welcomeTitle">
+  <div class="modal-inner">
+    <h2 id="welcomeTitle">Welcome to Downy</h2>
+    <p class="welcome-sub">Choose where Downy saves your downloads. You can change this later in Settings.</p>
+    <div class="field">
+      <div class="field-text">
+        <span class="field-label">Download folder</span>
+        <span class="field-help path" id="welcomeDir"></span>
+      </div>
+      <button type="button" class="btn" id="welcomeDirBtn">Choose folder</button>
+    </div>
+    <div class="welcome-foot">
+      <button type="button" class="btn primary" id="welcomeDone">Use this folder</button>
+    </div>
+  </div>
 </dialog>
 
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>

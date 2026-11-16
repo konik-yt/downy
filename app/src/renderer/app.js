@@ -555,6 +555,7 @@ function renderSettings() {
   if (!s) return;
   const f = $("settingsForm");
   $("setDir").textContent = s.downloadDir;
+  $("welcomeDir").textContent = s.downloadDir;
   for (const name of ["organize", "showOnStart", "closeToTray", "openAtLogin", "notify"]) f.elements[name].checked = !!s[name];
   f.elements.connections.value = s.connections;
   f.elements.maxActive.value = s.maxActive;
@@ -646,6 +647,16 @@ function wire() {
     renderSidebar();
   };
   $("setDirBtn").onclick = $("whereBtn").onclick;
+  $("welcomeDirBtn").onclick = $("whereBtn").onclick;
+
+  // First run: the welcome screen stays up until the user confirms a download folder.
+  const welcome = $("welcome");
+  welcome.addEventListener("cancel", (e) => e.preventDefault());
+  $("welcomeDone").onclick = async () => {
+    await saveSetting({ onboarded: true });
+    welcome.close();
+    $("url").focus();
+  };
   const form = $("settingsForm");
   for (const name of ["organize", "showOnStart", "closeToTray", "openAtLogin", "notify"]) {
     form.elements[name].addEventListener("change", (e) => saveSetting({ [name]: e.target.checked }));
@@ -690,4 +701,8 @@ function wire() {
     toast(`${!res.data.tools.ytdlp ? "yt-dlp" : "ffmpeg"} was not found. Open Settings to see what Downy needs.`, true);
   }
   $("url").focus();
+  if (!state.settings.onboarded) {
+    $("welcome").showModal();
+    $("welcomeDone").focus();
+  }
 })();
