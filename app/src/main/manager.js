@@ -337,9 +337,11 @@ class Manager extends EventEmitter {
     this.changed();
   }
 
-  async shutdown() {
+  // With resume, downloads that were running come back queued instead of paused.
+  async shutdown({ resume = false } = {}) {
     this.stopping = true; // jobs that stop now must not start the next queued one
     clearInterval(this.ticker);
+    const running = [...this.runtime.keys()];
     for (const [id, rt] of this.runtime) {
       const j = this.jobs.get(id);
       if (j) j.pausing = true;
@@ -348,6 +350,7 @@ class Manager extends EventEmitter {
     }
     await Promise.allSettled([...this.runtime.values()].map((rt) => rt.done));
     for (const j of this.jobs.values()) if (ACTIVE.has(j.status)) j.status = "paused";
+    if (resume) for (const id of running) if (this.jobs.get(id)?.status === "paused") this.jobs.get(id).status = "queued";
     this.save();
   }
 

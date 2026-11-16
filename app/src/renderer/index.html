@@ -19,6 +19,7 @@
     <span class="crumb-page" id="crumbPage">Downloads</span>
   </div>
   <div class="tb-actions">
+    <button class="tb-update" id="updateBtn" hidden data-icon="arrowDown"><span id="updateBtnText"></span></button>
     <button class="tb-btn" id="openSettings" title="Settings" aria-label="Settings" data-icon="sliders"></button>
     <span class="tb-gap"></span>
     <button class="win-btn" data-win="minimize" aria-label="Minimize" data-icon="minus"></button>
@@ -152,6 +153,14 @@
         <span class="field-help" id="extStatusSettings"></span>
       </span>
       <button type="button" class="btn" id="extSetupBtn">Set up</button>
+    </div>
+
+    <div class="field">
+      <span class="field-text">
+        <span class="field-label">Updates</span>
+        <span class="field-help" id="updateStatus"></span>
+      </span>
+      <button type="button" class="btn" id="updateAction">Check now</button>
     </div>
 
     <div class="tools" id="toolsList"></div>

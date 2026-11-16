@@ -7,6 +7,7 @@ const { Settings } = require("./settings");
 const { Manager } = require("./manager");
 const { startServer, PORT } = require("./server");
 const { ExtensionCopy, openChrome } = require("./extension");
+const { Updater } = require("./updater");
 
 const ASSETS = path.join(__dirname, "..", "renderer", "assets");
 
@@ -19,7 +20,8 @@ if (!app.requestSingleInstanceLock()) {
   let win = null;
   let tray = null;
   let quitting = false;
-  let settings, cache, manager, extension;
+  let settings, cache, manager, extension, updater;
+  let restartForUpdate = false;
   const startHidden = process.argv.includes("--hidden");
 
   const icon = (name) => nativeImage.createFromPath(path.join(ASSETS, name));
@@ -114,6 +116,7 @@ if (!app.requestSingleInstanceLock()) {
       { label: "Resume all", enabled: list.some((d) => d.status === "paused"), click: () => manager.resumeAll() },
       { label: "Open download folder", click: () => openFolder() },
       { type: "separator" },
+      ...(updater?.ready ? [{ label: `Restart to update to ${updater.state.version}`, click: restartToUpdate }] : []),
       { label: "Quit Downy", click: () => app.quit() },
     ]));
   }
@@ -149,6 +152,11 @@ if (!app.requestSingleInstanceLock()) {
     cache.prune(manager.infoFiles());
     extension = new ExtensionCopy(dataDir);
     extension.sync();
+    updater = new Updater();
+    updater.on("change", (u) => {
+      win?.webContents.send("update", u);
+      updateTray(manager.list());
+    });
 
     createWindow();
     tray = new Tray(icon("tray.png"));
@@ -186,7 +194,14 @@ if (!app.requestSingleInstanceLock()) {
         `Port ${PORT} is in use. If the old Python helper is running, close it (end pythonw.exe in Task Manager) and start Downy again.\n\n${e.message}`);
     }
     manager.schedule();
+    updater.start();
   });
+
+  function restartToUpdate() {
+    if (!updater.ready) return;
+    restartForUpdate = true;
+    app.quit();
+  }
 
   // With "Keep running in the tray" on, closing only hides the window, so this runs
   // when that setting is off. Quit through before-quit so downloads are saved as paused.
@@ -198,8 +213,10 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     quitting = true;
     e.preventDefault();
-    await manager?.shutdown();
+    // A restart for an update picks the running downloads up again once the new version starts.
+    await manager?.shutdown({ resume: restartForUpdate });
     tray?.destroy();
+    updater?.install(restartForUpdate); // a downloaded update also installs when Downy quits from the tray
     app.exit(0);
   });
 
@@ -218,6 +235,7 @@ if (!app.requestSingleInstanceLock()) {
     settings: settings.get(),
     tools: tools.status(),
     extension: extension.status(),
+    update: updater.state,
     maximized: win?.isMaximized() || false,
   }));
   handle("settings:set", (patch) => settings.set(patch));
@@ -243,6 +261,9 @@ if (!app.requestSingleInstanceLock()) {
     extension.sync(); // put the files back if someone deleted them
     shell.openPath(extension.dir);
   });
+  handle("update:check", () => updater.check());
+  handle("update:restart", () => restartToUpdate());
+  handle("update:open-page", () => updater.openReleasePage());
   handle("formats", async (url) => {
     if (!isYoutubeUrl(url)) throw new Error("Paste a YouTube link, such as youtube.com/watch?v=...");
     const { info } = await cache.get(url);

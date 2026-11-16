@@ -26,6 +26,7 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
   - `src/main/segmented.js` is the multi-connection downloader.
   - `src/main/manager.js` is the queue, pause and resume, saving state, and the ffmpeg merge or MP3 conversion.
   - `src/renderer/` is the window. The background is the Nyx pixel sky from T3 Code.
+  - `src/main/updater.js` checks GitHub releases and installs updates with electron-updater.
   - `src/main/extension.js` copies the bundled extension into Downy's data folder and tracks whether Chrome has loaded it.
 - `extension/` is the Chrome extension: the button over the player, the quality menu, the hand off of Chrome downloads and a popup with recent downloads. The installer bundles it.
 
@@ -45,7 +46,11 @@ You can open the extension steps again from Settings, Chrome extension, Set up.
 
 ### Updating
 
-Run the new `Downy-Setup-<version>.exe` over the old one. It replaces the app in the same folder and asks to close Downy if it is running. Your settings, history and unfinished downloads stay in `%APPDATA%\Downy`, and downloads that were running come back paused. Click resume and they continue from where they stopped.
+Downy checks GitHub for a new release when it starts and every 4 hours. The installed app downloads the new version in the background, then shows "Restart to update" at the top right of the window and in the tray menu. Click it and Downy saves the downloads, installs the update and starts again, and the downloads that were running continue. If you don't click it, the update installs the next time you quit Downy. Settings, Updates shows the current version and has a "Check now" button.
+
+The portable exe can't replace itself, so it only shows that a new version is out, with a button that opens the release page.
+
+Versions before 2.2 have no updater. Run the new `Downy-Setup-<version>.exe` over the old one once. Your settings, history and unfinished downloads stay in `%APPDATA%\Downy`.
 
 Downy keeps its copy of the extension in `%APPDATA%\Downy\Chrome extension` and refreshes it after each update, so Chrome picks up the new extension the next time it starts. You can also click the reload button on Downy in `chrome://extensions` to load it right away. If you loaded the extension from a zip or from this repo before 2.1, Downy asks once to switch to its own copy.
 
@@ -58,7 +63,7 @@ npm start          # run from source
 npm run dist       # build the installer and the portable exe into app/dist
 ```
 
-For testing, `DOWNY_USER_DATA` points Downy at a separate settings and history folder, and `DOWNY_SCREENSHOT` saves screenshots of the window every few seconds.
+For testing, `DOWNY_USER_DATA` points Downy at a separate settings and history folder, `DOWNY_PORT` moves the local API off 9614, `DOWNY_UPDATE_URL` points the updater at a folder with `latest.yml` and a setup exe instead of GitHub, and `DOWNY_SCREENSHOT` saves screenshots of the window every few seconds.
 
 Keep yt-dlp current with `yt-dlp -U` (or `winget upgrade yt-dlp.yt-dlp`), since YouTube changes often.
 
@@ -71,6 +76,8 @@ gh workflow run release.yml                      # next patch version, like 2.0.
 gh workflow run release.yml -f bump=minor        # like 2.1.0
 gh workflow run release.yml -f version=3.0.0     # an exact version
 ```
+
+Each release carries `latest.yml` and `Downy-Setup-<version>.exe.blockmap` next to the exes. The updater in Downy reads them, so don't delete them from a release.
 
 If the version in `app/package.json` has no release yet, the workflow releases that version as it is. Otherwise it raises the version, writes it to `app/package.json` and `extension/manifest.json`, commits that to the branch and tags the commit.
 

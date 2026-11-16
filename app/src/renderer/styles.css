@@ -95,6 +95,13 @@ body:has(.main.has-list) { --sky-dim: .62; }
 .crumb-page { color: var(--text); font-weight: 500; }
 .tb-actions { display: flex; align-items: center; height: 100%; -webkit-app-region: no-drag; }
 .tb-gap { width: 12px; }
+.tb-update {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; margin-right: 6px; padding: 0 11px 0 9px;
+  border-radius: 8px; border: 0; color: #fff; font-size: 12.5px; font-weight: 600;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+.tb-update .ic { width: 14px; height: 14px; }
+.tb-update:hover { background: linear-gradient(90deg, #948df0, #7f9bff); }
 .tb-btn {
   width: 32px; height: 30px; border-radius: 8px; border: 0; background: transparent; color: var(--muted);
   display: grid; place-items: center;
@@ -259,6 +266,7 @@ body:has(.main.has-list) { --sky-dim: .62; }
 }
 .btn .ic { width: 14px; height: 14px; color: var(--muted); }
 .btn:hover { border-color: var(--line-accent); color: var(--text); background: #0d0b26; }
+.btn:disabled { opacity: .5; cursor: default; pointer-events: none; }
 .list { display: flex; flex-direction: column; gap: 8px; }
 .list-empty { color: var(--muted); text-align: center; padding: 40px 0; margin: 0; }
 
