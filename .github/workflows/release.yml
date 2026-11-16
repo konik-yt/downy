@@ -1,0 +1,144 @@
+# Builds Downy on Windows and publishes a GitHub release with the installer,
+# the portable exe and the extension zip. Start it from the Actions tab or with
+# `gh workflow run release.yml`.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Part of the version to raise when the current version is already released
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: Exact version to release, like 2.1.0. Leave empty to use the bump.
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Pick the version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          EXACT: ${{ inputs.version }}
+        run: |
+          current=$(node -p "require('./app/package.json').version")
+          if [ -n "$EXACT" ]; then
+            version="${EXACT#v}"
+          elif ! git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
+            # The version in package.json was never released, so release it as it is.
+            version="$current"
+          else
+            version=$(node -e "
+              const [a, b, c] = process.argv[1].split('.').map(Number);
+              const part = process.argv[2];
+              console.log(part === 'major' ? (a + 1) + '.0.0'
+                : part === 'minor' ? a + '.' + (b + 1) + '.0'
+                : a + '.' + b + '.' + (c + 1));
+            " "$current" "$BUMP")
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$version is not a version like 2.1.0"
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "::error::v$version is already released"
+            exit 1
+          fi
+          echo "Releasing $version (package.json has $current)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Write the version into the app and the extension
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          (cd app && npm version "$VERSION" --no-git-tag-version --allow-same-version)
+          node -e "
+            const fs = require('fs');
+            const file = 'extension/manifest.json';
+            const text = fs.readFileSync(file, 'utf8');
+            fs.writeFileSync(file, text.replace(/\"version\":\s*\"[^\"]*\"/, '\"version\": \"' + process.env.VERSION + '\"'));
+          "
+
+      - name: Install
+        working-directory: app
+        run: npm ci
+
+      - name: Build the installer and the portable exe
+        working-directory: app
+        run: npx electron-builder --win nsis portable --publish never
+
+      - name: Zip the extension
+        shell: pwsh
+        run: Compress-Archive -Path extension/* -DestinationPath "app/dist/Downy-extension-${{ steps.version.outputs.version }}.zip"
+
+      - name: Commit the version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git diff --quiet; then
+            echo "Version files already say $VERSION"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release v$VERSION"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Write the release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+          {
+            echo "## Install"
+            echo
+            echo "1. Download \`Downy-Setup-$VERSION.exe\` and run it, or run \`Downy-$VERSION-portable.exe\` without installing. The exe is not code signed, so Windows SmartScreen may warn you. Click \"More info\", then \"Run anyway\"."
+            echo "2. Install the tools Downy uses: \`winget install yt-dlp.yt-dlp Gyan.FFmpeg OpenJS.NodeJS\`"
+            echo "3. Unzip \`Downy-extension-$VERSION.zip\`, open \`chrome://extensions\`, turn on Developer mode, click \"Load unpacked\" and pick the unzipped folder."
+            echo
+            echo "## Changes"
+            echo
+            if [ -n "$prev" ]; then
+              git log --no-merges --format='- %s' "$prev..HEAD" | grep -v '^- Release v' || echo "- No code changes since $prev."
+            else
+              echo "First release of the Downy desktop app."
+            fi
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            "app/dist/Downy-Setup-$VERSION.exe" \
+            "app/dist/Downy-$VERSION-portable.exe" \
+            "app/dist/Downy-extension-$VERSION.zip" \
+            --target "$(git rev-parse HEAD)" \
+            --title "Downy $VERSION" \
+            --notes-file release-notes.md
