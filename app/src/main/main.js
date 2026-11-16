@@ -52,6 +52,7 @@ if (!app.requestSingleInstanceLock()) {
         fs.writeFileSync(`${process.env.DOWNY_SCREENSHOT}-${n}.png`, img.toPNG());
       };
       let n = 0;
+      win.webContents.on("console-message", (e) => console.log("[renderer]", e.message));
       win.webContents.once("did-finish-load", () => {
         if (process.env.DOWNY_EVAL) setTimeout(() => win.webContents.executeJavaScript(process.env.DOWNY_EVAL), 800);
         setTimeout(() => shoot(n++), 1500);

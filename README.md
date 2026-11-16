@@ -2,30 +2,46 @@
 
 # Downy
 
-A YouTube downloader in the style of IDM. A Chrome extension puts a "Download this video" button over YouTube videos. Picking a quality sends the job to a small helper app on your PC, which runs yt-dlp and ffmpeg and saves the file to `Downloads\Downy`.
+A YouTube download manager in the style of IDM. A Chrome extension puts a "Download this video" button over YouTube videos. Picking a quality hands the job to the Downy desktop app, which opens, shows the progress and saves the file into a folder for its format.
+
+## What it does
+
+- Downloads each file over several connections at once (8 by default). When a connection finishes its part, it takes half of the largest part still running, so all connections stay busy until the end.
+- Pauses and resumes any download. Progress is saved to disk every second, so a download picks up where it stopped even after Downy or Windows restarts.
+- Runs several downloads at the same time (3 by default) and queues the rest.
+- Sorts finished files into `MP3`, `M4A`, `144p` up to `2160p` folders inside the download folder you choose.
+- Lives in the system tray. Closing the window keeps downloads running. Quit from the tray icon.
+- Can start with Windows (Settings, Start with Windows).
 
 ## Parts
 
+- `app/` is the desktop app (Electron). It serves a small local API on `http://127.0.0.1:9614` for the extension and accepts requests only from Chrome extensions.
+  - `src/main/segmented.js` is the multi-connection downloader.
+  - `src/main/manager.js` is the queue, pause and resume, saving state, and the ffmpeg merge or MP3 conversion.
+  - `src/renderer/` is the window. The background is the Nyx pixel sky from T3 Code.
 - `extension/` is the Chrome extension: the button over the player, the quality menu and a popup with recent downloads.
-- `helper/downy_helper.py` is the local helper. It listens on `http://127.0.0.1:9614`, accepts requests only from the extension and its own page, and serves a download manager page at that address.
-- `start-downy.bat` starts the helper without a console window.
-- `install-startup.ps1` makes the helper start when you sign in. Run it with `-Remove` to undo.
 
 ## Requirements
 
-- Python 3.10 or newer (no extra packages)
-- `yt-dlp` and `ffmpeg` on PATH
-- Node.js or Deno on PATH, which yt-dlp needs to read YouTube
+- `yt-dlp` and `ffmpeg`. Downy finds them on PATH or in winget's install folder:
+  `winget install yt-dlp.yt-dlp Gyan.FFmpeg`
+- Node.js or Deno, which yt-dlp needs to read YouTube.
 
-## Setup
+## Install
 
-1. Double click `start-downy.bat`, or run `powershell -ExecutionPolicy Bypass -File install-startup.ps1` to start it at every sign in.
-2. Open `chrome://extensions`, turn on Developer mode, click "Load unpacked" and pick the `extension` folder.
-3. Open any YouTube video. The button sits at the top right of the player and hides along with the YouTube controls.
+1. Run `app\dist\Downy-Setup-2.0.0.exe`, or use `app\dist\Downy-2.0.0-portable.exe` without installing.
+2. Open `chrome://extensions`, turn on Developer mode, click "Load unpacked" and pick the `extension` folder. If you loaded it before, click its reload button.
+3. Open any YouTube video and click "Download this video".
 
-## Options
+## Build from source
 
-- `DOWNY_DIR` changes the download folder.
-- `DOWNY_PORT` changes the port. The extension expects 9614, so change `extension/background.js` and `manifest.json` too.
+```
+cd app
+npm install
+npm start          # run from source
+npm run dist       # build the installer and the portable exe into app/dist
+```
 
-Keep yt-dlp current with `yt-dlp -U`, since YouTube changes often.
+For testing, `DOWNY_USER_DATA` points Downy at a separate settings and history folder, and `DOWNY_SCREENSHOT` saves screenshots of the window every few seconds.
+
+Keep yt-dlp current with `yt-dlp -U` (or `winget upgrade yt-dlp.yt-dlp`), since YouTube changes often.
