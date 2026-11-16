@@ -161,7 +161,7 @@ class Manager extends EventEmitter {
       created: j.created, finished: j.finished, mode: j.mode, phase: j.phase || "",
       stream: current ? { role: current.role, index: j.streams.indexOf(current) + 1, count: j.streams.length } : null,
       segments, connections: segments.filter((s) => s.live).length || (rt?.proc ? this.settings.get().connections : 0),
-      postProgress: j.postProgress || 0,
+      postProgress: j.postProgress || 0, resumable: j.resumable,
     };
   }
 
