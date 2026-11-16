@@ -18,7 +18,7 @@
       "package.json"
     ],
     "win": {
-      "icon": "src/renderer/assets/icon.png",
+      "icon": "src/renderer/assets/icon.ico",
       "target": [
         "nsis",
         "portable"
