@@ -20,11 +20,15 @@ class AbortError extends Error {
 }
 
 const sleep = (ms, signal) => new Promise((resolve, reject) => {
-  const t = setTimeout(resolve, ms);
-  signal?.addEventListener("abort", () => {
+  const onAbort = () => {
     clearTimeout(t);
     reject(new AbortError());
-  }, { once: true });
+  };
+  const t = setTimeout(() => {
+    signal?.removeEventListener("abort", onAbort);
+    resolve();
+  }, ms);
+  signal?.addEventListener("abort", onAbort, { once: true });
 });
 
 function split(size, n) {
@@ -200,6 +204,7 @@ function runWorkers(st, fh, opts) {
             res.body?.cancel().catch(() => {});
             throw Object.assign(new Error(`The server answered ${res.status}`), { retry: res.status >= 500 || res.status === 429 });
           }
+          const before = seg.pos;
           for await (const chunk of res.body) {
             const room = seg.end - seg.pos + 1; // another connection may have taken the tail
             if (room <= 0) break;
@@ -209,6 +214,7 @@ function runWorkers(st, fh, opts) {
             seg.pos += buf.length;
             onBytes(buf.length);
           }
+          if (seg.pos === before && seg.pos <= seg.end) throw new Error("The server sent no data");
           attempts = 0;
         } catch (e) {
           if (local.signal.aborted || e.name === "AbortError") throw new AbortError();
