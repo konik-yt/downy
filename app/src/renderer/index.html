@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Downy</title>
+<link rel="stylesheet" href="../../node_modules/@fontsource-variable/inter/index.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="sky" aria-hidden="true"></div>
+
+<header class="titlebar">
+  <div class="crumbs">
+    <span class="tile" aria-hidden="true">D</span>
+    <span class="crumb-app">Downy</span>
+    <span class="crumb-sep" aria-hidden="true">/</span>
+    <span class="crumb-page" id="crumbPage">Downloads</span>
+  </div>
+  <div class="tb-actions">
+    <button class="tb-btn" id="openSettings" title="Settings" aria-label="Settings" data-icon="sliders"></button>
+    <span class="tb-gap"></span>
+    <button class="win-btn" data-win="minimize" aria-label="Minimize" data-icon="minus"></button>
+    <button class="win-btn" data-win="maximize" aria-label="Maximize" data-icon="square" id="maxBtn"></button>
+    <button class="win-btn close" data-win="close" aria-label="Close to tray" data-icon="x"></button>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="sidebar" aria-label="Downloads">
+    <div class="nav-group" id="filters"></div>
+    <div class="nav-head">Folders</div>
+    <div class="nav-group" id="folders"></div>
+    <div class="nav-foot">
+      <button class="where" id="whereBtn" title="Change the download folder">
+        <span data-icon="folder"></span>
+        <span class="where-text"><span class="where-label">Saving to</span><span class="where-path" id="wherePath"></span></span>
+      </button>
+    </div>
+  </nav>
+
+  <main class="main" id="main">
+    <section class="hero" id="hero">
+      <div class="wordmark" aria-hidden="true">Downy</div>
+      <h1>What should we download?</h1>
+      <p class="sub">Paste a YouTube link, or click Download this video on any YouTube page</p>
+    </section>
+
+    <form class="composer" id="composer" autocomplete="off">
+      <label class="sr-only" for="url">YouTube link</label>
+      <input id="url" type="text" spellcheck="false" placeholder="Paste a YouTube link">
+      <div class="composer-row">
+        <span class="hint" id="composerHint"><span data-icon="link"></span>Formats are sorted into MP3, M4A and resolution folders</span>
+        <button class="send" type="submit" id="sendBtn" aria-label="Get formats" title="Get formats" data-icon="arrowUp"></button>
+      </div>
+      <div class="picker" id="picker" hidden></div>
+    </form>
+
+    <section class="list-wrap" id="listWrap" hidden>
+      <div class="list-head">
+        <h2 id="listTitle">All downloads</h2>
+        <span class="list-count" id="listCount"></span>
+        <div class="list-actions" id="listActions"></div>
+      </div>
+      <div class="list" id="list" role="list"></div>
+      <p class="list-empty" id="listEmpty" hidden></p>
+    </section>
+  </main>
+</div>
+
+<dialog class="modal" id="settings" aria-labelledby="settingsTitle">
+  <form method="dialog" class="modal-inner" id="settingsForm">
+    <div class="modal-head">
+      <h2 id="settingsTitle">Settings</h2>
+      <button class="icon-btn" value="close" aria-label="Close settings" data-icon="x"></button>
+    </div>
+
+    <div class="field">
+      <div class="field-text">
+        <span class="field-label">Download folder</span>
+        <span class="field-help path" id="setDir"></span>
+      </div>
+      <button type="button" class="btn" id="setDirBtn">Change folder</button>
+    </div>
+
+    <label class="field">
+      <span class="field-text">
+        <span class="field-label">Sort into format folders</span>
+        <span class="field-help">Saves each file in a folder named after its format, such as MP3, M4A, 720p or 1080p</span>
+      </span>
+      <input type="checkbox" class="switch" name="organize">
+    </label>
+
+    <div class="field">
+      <span class="field-text">
+        <span class="field-label" id="connLabel">Connections per file</span>
+        <span class="field-help">Downy splits each file into parts and fetches them at the same time. 8 works well for YouTube.</span>
+      </span>
+      <div class="stepper" role="group" aria-labelledby="connLabel">
+        <button type="button" data-step="connections" data-delta="-1" aria-label="Fewer connections" data-icon="minus"></button>
+        <output name="connections"></output>
+        <button type="button" data-step="connections" data-delta="1" aria-label="More connections" data-icon="plus"></button>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="field-text">
+        <span class="field-label" id="activeLabel">Downloads at the same time</span>
+        <span class="field-help">Downloads beyond this number wait in line</span>
+      </span>
+      <div class="stepper" role="group" aria-labelledby="activeLabel">
+        <button type="button" data-step="maxActive" data-delta="-1" aria-label="Fewer downloads at once" data-icon="minus"></button>
+        <output name="maxActive"></output>
+        <button type="button" data-step="maxActive" data-delta="1" aria-label="More downloads at once" data-icon="plus"></button>
+      </div>
+    </div>
+
+    <label class="field">
+      <span class="field-text">
+        <span class="field-label">Open Downy when a download starts</span>
+        <span class="field-help">Brings this window up when you click Download on YouTube</span>
+      </span>
+      <input type="checkbox" class="switch" name="showOnStart">
+    </label>
+
+    <label class="field">
+      <span class="field-text">
+        <span class="field-label">Keep running in the tray when closed</span>
+        <span class="field-help">Downloads keep going after you close the window. Quit from the tray icon.</span>
+      </span>
+      <input type="checkbox" class="switch" name="closeToTray">
+    </label>
+
+    <label class="field">
+      <span class="field-text">
+        <span class="field-label">Start with Windows</span>
+        <span class="field-help" id="loginHelp">Starts in the tray when you sign in</span>
+      </span>
+      <input type="checkbox" class="switch" name="openAtLogin">
+    </label>
+
+    <label class="field">
+      <span class="field-text">
+        <span class="field-label">Notify me when a download finishes</span>
+      </span>
+      <input type="checkbox" class="switch" name="notify">
+    </label>
+
+    <div class="tools" id="toolsList"></div>
+  </form>
+</dialog>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script src="icons.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
