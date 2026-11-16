@@ -5,6 +5,7 @@ const state = {
   settings: null,
   tools: {},
   extension: null, // { dir, version, seen, seenVersion, current }
+  update: null, // { status, current, version, percent, error, portable }
   filter: "all",
   folder: null,
   picker: null, // { url, info }
@@ -571,6 +572,46 @@ function renderSettings() {
   }));
 }
 
+// ---------------------------------------------------------------- updates
+
+function updateText(u) {
+  switch (u.status) {
+    case "off": return `Downy ${u.current}. Updates are off in a dev build.`;
+    case "checking": return `Downy ${u.current}. Checking for updates`;
+    case "latest": return `Downy ${u.current} is the latest version`;
+    case "available": return `Downy ${u.version} is out. The portable exe can't update itself, so download the new one from GitHub.`;
+    case "downloading": return `Downloading Downy ${u.version || ""}, ${u.percent}%`;
+    case "ready": return `Downy ${u.version} is ready. It installs when you restart or quit Downy. Running downloads continue after the restart.`;
+    case "error": return `Downy ${u.current}. ${u.error}`;
+    default: return `Downy ${u.current}. Downy checks for updates in the background.`;
+  }
+}
+
+function renderUpdate() {
+  const u = state.update;
+  if (!u) return;
+  $("updateStatus").textContent = updateText(u);
+  const action = $("updateAction");
+  action.hidden = u.status === "off";
+  action.disabled = u.status === "checking" || u.status === "downloading";
+  action.textContent = u.status === "ready" ? "Restart to update" : u.status === "available" ? "Open download page" : "Check now";
+  const btn = $("updateBtn");
+  btn.hidden = !(u.status === "ready" || u.status === "available");
+  $("updateBtnText").textContent = u.status === "ready" ? "Restart to update" : `Get ${u.version}`;
+  btn.title = u.status === "ready" ? `Install Downy ${u.version} and start it again` : `Open the Downy ${u.version} release on GitHub`;
+}
+
+async function updateAction() {
+  const u = state.update;
+  if (u.status === "ready") return call(downy.restartToUpdate);
+  if (u.status === "available") return call(downy.openReleasePage);
+  state.update = { ...u, status: "checking" };
+  renderUpdate();
+  const next = await call(downy.checkUpdate);
+  if (next) state.update = next;
+  renderUpdate();
+}
+
 // ------------------------------------------------------- chrome extension
 
 function extensionStatus(x, waiting) {
@@ -724,6 +765,8 @@ function wire() {
     toast("Folder copied. Paste it into the Folder box after you click Load unpacked.");
   };
   $("extShowFolder").onclick = () => call(downy.showExtensionFolder);
+  $("updateAction").onclick = updateAction;
+  $("updateBtn").onclick = updateAction;
   $("extSkip").onclick = finishExtensionStep;
   $("extDone").onclick = finishExtensionStep;
   $("extSetupBtn").onclick = () => {
@@ -750,6 +793,12 @@ function wire() {
     renderSettings();
     renderSidebar();
   });
+  downy.onUpdate((u) => {
+    const wasReady = state.update?.status === "ready";
+    state.update = u;
+    renderUpdate();
+    if (u.status === "ready" && !wasReady) toast(`Downy ${u.version} is ready. Click Restart to update at the top right, or it installs when you quit.`);
+  });
   downy.onExtension((x) => {
     state.extension = x;
     renderExtension();
@@ -766,7 +815,7 @@ function wire() {
   wire();
   const res = await downy.state();
   if (!res.ok) return toast(res.error, true);
-  Object.assign(state, { downloads: res.data.downloads, settings: res.data.settings, tools: res.data.tools, extension: res.data.extension });
+  Object.assign(state, { downloads: res.data.downloads, settings: res.data.settings, tools: res.data.tools, extension: res.data.extension, update: res.data.update });
   if (res.data.maximized) {
     $("maxBtn").dataset.icon = "restore";
     paintIcons($("maxBtn").parentElement);
@@ -774,6 +823,7 @@ function wire() {
   render();
   renderSettings();
   renderExtension();
+  renderUpdate();
   defaultHint();
   if (!res.data.tools.ytdlp || !res.data.tools.ffmpeg) {
     toast(`${!res.data.tools.ytdlp ? "yt-dlp" : "ffmpeg"} was not found. Open Settings to see what Downy needs.`, true);
