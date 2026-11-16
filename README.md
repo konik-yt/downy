@@ -2,14 +2,20 @@
 
 # Downy
 
-A YouTube download manager in the style of IDM. A Chrome extension puts a "Download this video" button over YouTube videos. Picking a quality hands the job to the Downy desktop app, which opens, shows the progress and saves the file into a folder for its format.
+A download manager in the style of IDM. A Chrome extension puts a "Download this video" button over YouTube videos and hands normal Chrome downloads to the Downy desktop app, which opens, shows the progress and saves the file.
 
 ## What it does
 
 - Downloads each file over several connections at once (8 by default). When a connection finishes its part, it takes half of the largest part still running, so all connections stay busy until the end.
 - Pauses and resumes any download. Progress is saved to disk every second, so a download picks up where it stopped even after Downy or Windows restarts.
 - Runs several downloads at the same time (3 by default) and queues the rest.
-- Sorts finished files into `MP3`, `M4A`, `144p` up to `2160p` folders inside the download folder you choose.
+- Takes over normal Chrome downloads of 1 MB or more, with the page's cookies and referrer, so signed-in downloads work. Chrome keeps the download when Downy is closed or the link only works inside the browser. The extension popup has a switch to turn this off. You can also paste any file link into Downy.
+- Sorts finished files inside the download folder you choose:
+
+  ```
+  Downloads\          files from Chrome and pasted file links
+  YouTube    MP3\  M4A\  720p\  1080p\  2160p\ ...
+  ```
 - Lives in the system tray. Closing the window keeps downloads running. Quit from the tray icon.
 - Can start with Windows (Settings, Start with Windows).
 
@@ -19,7 +25,7 @@ A YouTube download manager in the style of IDM. A Chrome extension puts a "Downl
   - `src/main/segmented.js` is the multi-connection downloader.
   - `src/main/manager.js` is the queue, pause and resume, saving state, and the ffmpeg merge or MP3 conversion.
   - `src/renderer/` is the window. The background is the Nyx pixel sky from T3 Code.
-- `extension/` is the Chrome extension: the button over the player, the quality menu and a popup with recent downloads.
+- `extension/` is the Chrome extension: the button over the player, the quality menu, the hand off of Chrome downloads and a popup with recent downloads.
 
 ## Requirements
 

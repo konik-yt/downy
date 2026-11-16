@@ -52,4 +52,6 @@ async function refresh() {
 }
 
 $("manager").onclick = () => send({ type: "manager" });
+chrome.storage.local.get("catchDownloads").then(({ catchDownloads = true }) => ($("catch").checked = catchDownloads));
+$("catch").onchange = (e) => chrome.storage.local.set({ catchDownloads: e.target.checked });
 refresh();
