@@ -134,6 +134,7 @@
       this.loading = null;
       this.activeId = null;
       this.pollTimer = null;
+      this.missing = 0;
       this.doneId = null;
       this.doneTimer = null;
     }
@@ -272,6 +273,7 @@
         return;
       }
       this.activeId = res.data.id;
+      this.missing = 0;
       this.poll();
     }
 
@@ -282,7 +284,18 @@
       const res = await send({ type: "list" });
       if (id !== this.activeId) return;
       const d = res?.ok && res.data.downloads.find((x) => x.id === id);
-      if (!d) { this.pollTimer = setTimeout(() => this.poll(), 1500); return; }
+      if (!d) {
+        // Removed from the list, or Downy closed: stop following it after a few tries.
+        if (++this.missing > 4) {
+          this.activeId = null;
+          this.setIdle();
+          this.updateVisibility();
+          return;
+        }
+        this.pollTimer = setTimeout(() => this.poll(), 1500);
+        return;
+      }
+      this.missing = 0;
       const pct = Math.round(d.progress * 100);
       this.fill.style.width = `${pct}%`;
       if (d.status === "downloading" || d.status === "queued") {
