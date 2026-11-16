@@ -3,10 +3,12 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const cache = new Map();
+const cache = new Map(); // name -> { path, at }
+const MISS_TTL = 60 * 1000; // a missing tool is looked for again after a minute
 
 function onPath(name) {
-  const exts = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
+  // Only .exe on Windows: spawn without a shell cannot run .cmd or .bat files (EINVAL).
+  const exts = process.platform === "win32" ? [".exe"] : [""];
   for (const dir of (process.env.PATH || "").split(path.delimiter)) {
     if (!dir) continue;
     for (const ext of exts) {
@@ -58,9 +60,10 @@ function inWinget(name) {
 }
 
 function find(name) {
-  if (cache.has(name)) return cache.get(name);
+  const hit = cache.get(name);
+  if (hit && (hit.path || Date.now() - hit.at < MISS_TTL)) return hit.path;
   const found = onPath(name) || (process.platform === "win32" ? inWinget(name) : null);
-  if (found) cache.set(name, found);
+  cache.set(name, { path: found, at: Date.now() });
   return found;
 }
 
