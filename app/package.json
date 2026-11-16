@@ -47,6 +47,12 @@
           "downy"
         ]
       }
+    ],
+    "extraResources": [
+      {
+        "from": "../extension",
+        "to": "extension"
+      }
     ]
   },
   "dependencies": {

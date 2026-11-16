@@ -26,7 +26,8 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
   - `src/main/segmented.js` is the multi-connection downloader.
   - `src/main/manager.js` is the queue, pause and resume, saving state, and the ffmpeg merge or MP3 conversion.
   - `src/renderer/` is the window. The background is the Nyx pixel sky from T3 Code.
-- `extension/` is the Chrome extension: the button over the player, the quality menu, the hand off of Chrome downloads and a popup with recent downloads.
+  - `src/main/extension.js` copies the bundled extension into Downy's data folder and tracks whether Chrome has loaded it.
+- `extension/` is the Chrome extension: the button over the player, the quality menu, the hand off of Chrome downloads and a popup with recent downloads. The installer bundles it.
 
 ## Requirements
 
@@ -37,9 +38,16 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
 ## Install
 
 1. Open the [latest release](https://github.com/konik-yt/downy/releases/latest) and download `Downy-Setup-<version>.exe`, or `Downy-<version>-portable.exe` to run it without installing. The exe is not code signed, so Windows SmartScreen may warn you. Click "More info", then "Run anyway".
-2. Download `Downy-extension-<version>.zip` from the same release and unzip it.
-3. Open `chrome://extensions`, turn on Developer mode, click "Load unpacked" and pick the unzipped folder. If you loaded it before, click its reload button.
-4. Open any YouTube video and click "Download this video".
+2. Start Downy. The welcome screen asks for a download folder, then walks you through adding the Chrome extension, which comes with Downy. Chrome only allows this kind of extension by hand: open `chrome://extensions`, turn on Developer mode, click "Load unpacked" and pick the folder Downy shows. The screen turns green once Chrome has loaded it.
+3. Open any YouTube video and click "Download this video".
+
+You can open the extension steps again from Settings, Chrome extension, Set up.
+
+### Updating
+
+Run the new `Downy-Setup-<version>.exe` over the old one. It replaces the app in the same folder and asks to close Downy if it is running. Your settings, history and unfinished downloads stay in `%APPDATA%\Downy`, and downloads that were running come back paused. Click resume and they continue from where they stopped.
+
+Downy keeps its copy of the extension in `%APPDATA%\Downy\Chrome extension` and refreshes it after each update, so Chrome picks up the new extension the next time it starts. You can also click the reload button on Downy in `chrome://extensions` to load it right away. If you loaded the extension from a zip or from this repo before 2.1, Downy asks once to switch to its own copy.
 
 ## Build from source
 

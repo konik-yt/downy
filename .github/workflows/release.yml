@@ -118,7 +118,9 @@ jobs:
             echo
             echo "1. Download \`Downy-Setup-$VERSION.exe\` and run it, or run \`Downy-$VERSION-portable.exe\` without installing. The exe is not code signed, so Windows SmartScreen may warn you. Click \"More info\", then \"Run anyway\"."
             echo "2. Install the tools Downy uses: \`winget install yt-dlp.yt-dlp Gyan.FFmpeg OpenJS.NodeJS\`"
-            echo "3. Unzip \`Downy-extension-$VERSION.zip\`, open \`chrome://extensions\`, turn on Developer mode, click \"Load unpacked\" and pick the unzipped folder."
+            echo "3. Start Downy. The welcome screen walks you through adding the Chrome extension, which comes with the app."
+            echo
+            echo "To update, run the new setup exe over the old one. Settings, history and unfinished downloads are kept. \`Downy-extension-$VERSION.zip\` is the same extension for anyone who wants it on its own."
             echo
             echo "## Changes"
             echo

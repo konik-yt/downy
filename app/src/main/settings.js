@@ -13,6 +13,7 @@ const DEFAULTS = {
   openAtLogin: false,
   notify: true,
   onboarded: false, // the first run asks where to save downloads
+  extensionSetup: false, // the Chrome extension step was shown once (also to people updating from 2.0)
 };
 
 const LIMITS = { connections: [1, 32], maxActive: [1, 10] };

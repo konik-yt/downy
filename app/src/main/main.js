@@ -1,11 +1,12 @@
 const path = require("path");
 const fs = require("fs");
-const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, Notification, nativeImage } = require("electron");
+const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, Notification, nativeImage, clipboard } = require("electron");
 const tools = require("./tools");
 const { InfoCache, isYoutubeUrl, buildOptions, publicOptions } = require("./formats");
 const { Settings } = require("./settings");
 const { Manager } = require("./manager");
 const { startServer, PORT } = require("./server");
+const { ExtensionCopy, openChrome } = require("./extension");
 
 const ASSETS = path.join(__dirname, "..", "renderer", "assets");
 
@@ -18,7 +19,7 @@ if (!app.requestSingleInstanceLock()) {
   let win = null;
   let tray = null;
   let quitting = false;
-  let settings, cache, manager;
+  let settings, cache, manager, extension;
   const startHidden = process.argv.includes("--hidden");
 
   const icon = (name) => nativeImage.createFromPath(path.join(ASSETS, name));
@@ -117,6 +118,10 @@ if (!app.requestSingleInstanceLock()) {
     ]));
   }
 
+  function extensionSeen(version) {
+    if (extension.markSeen(version)) win?.webContents.send("extension", extension.status());
+  }
+
   function formatSpeed(n) {
     if (!n) return "0 KB/s";
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB/s`;
@@ -142,6 +147,8 @@ if (!app.requestSingleInstanceLock()) {
     cache = new InfoCache(path.join(dataDir, "cache"));
     manager = new Manager({ dataDir, cache, settings });
     cache.prune(manager.infoFiles());
+    extension = new ExtensionCopy(dataDir);
+    extension.sync();
 
     createWindow();
     tray = new Tray(icon("tray.png"));
@@ -173,7 +180,7 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     try {
-      await startServer({ manager, cache, settings, tools, actions: { show, reveal } });
+      await startServer({ manager, cache, settings, tools, actions: { show, reveal, extensionSeen } });
     } catch (e) {
       dialog.showErrorBox("Downy could not start its helper",
         `Port ${PORT} is in use. If the old Python helper is running, close it (end pythonw.exe in Task Manager) and start Downy again.\n\n${e.message}`);
@@ -210,6 +217,7 @@ if (!app.requestSingleInstanceLock()) {
     downloads: manager.list(),
     settings: settings.get(),
     tools: tools.status(),
+    extension: extension.status(),
     maximized: win?.isMaximized() || false,
   }));
   handle("settings:set", (patch) => settings.set(patch));
@@ -225,6 +233,15 @@ if (!app.requestSingleInstanceLock()) {
   handle("tools:recheck", () => {
     tools.resetCache();
     return tools.status();
+  });
+  handle("extension:open-chrome", () => {
+    clipboard.writeText("chrome://extensions");
+    return openChrome();
+  });
+  handle("extension:copy-path", () => clipboard.writeText(extension.dir));
+  handle("extension:show-folder", () => {
+    extension.sync(); // put the files back if someone deleted them
+    shell.openPath(extension.dir);
   });
   handle("formats", async (url) => {
     if (!isYoutubeUrl(url)) throw new Error("Paste a YouTube link, such as youtube.com/watch?v=...");

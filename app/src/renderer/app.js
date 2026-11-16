@@ -4,6 +4,7 @@ const state = {
   downloads: [],
   settings: null,
   tools: {},
+  extension: null, // { dir, version, seen, seenVersion, current }
   filter: "all",
   folder: null,
   picker: null, // { url, info }
@@ -570,6 +571,58 @@ function renderSettings() {
   }));
 }
 
+// ------------------------------------------------------- chrome extension
+
+function extensionStatus(x, waiting) {
+  if (!x) return { text: "", tone: "" };
+  if (x.current) return { text: "Connected. Open any YouTube video to try it.", tone: "ok" };
+  if (x.seen && !x.seenVersion) {
+    return { text: "An older Downy extension is talking to Downy. Remove it in Chrome and load the folder above instead, so it updates with Downy.", tone: "warn" };
+  }
+  if (x.seen) {
+    return { text: `Chrome is still running version ${x.seenVersion}. Click the reload button on Downy in chrome://extensions, or restart Chrome, to use ${x.version}.`, tone: "warn" };
+  }
+  return waiting
+    ? { text: "Waiting for Chrome to load the extension", tone: "wait" }
+    : { text: "Downy hasn't heard from the extension since it started. If you haven't added it yet, click Set up.", tone: "" };
+}
+
+function renderExtension() {
+  const x = state.extension;
+  if (!x) return;
+  $("extDir").textContent = x.dir;
+  for (const [id, waiting] of [["extStatus", true], ["extStatusSettings", false]]) {
+    const st = extensionStatus(x, waiting);
+    const node = $(id);
+    node.textContent = st.text;
+    node.dataset.tone = st.tone;
+  }
+}
+
+// mode: "first" for a new install, "update" for someone coming from 2.0, "settings" from the Set up button.
+function showExtensionStep(mode) {
+  const welcome = $("welcome");
+  $("stepFolder").hidden = true;
+  $("stepExtension").hidden = false;
+  $("extStepCount").hidden = mode !== "first";
+  $("extRemoveStep").hidden = mode === "first";
+  $("extSkip").textContent = mode === "settings" ? "Close" : "Skip for now";
+  $("extTitle").textContent = mode === "update" ? "Downy now keeps its Chrome extension up to date" : "Add Downy to Chrome";
+  $("extSub").textContent = mode === "update"
+    ? "The extension now comes with Downy, and each Downy update brings the new extension along. Load it from Downy's folder once to switch over."
+    : "The extension puts a Download button on YouTube videos and hands Chrome downloads to Downy. Chrome only lets you add it by hand, which takes a minute.";
+  welcome.setAttribute("aria-labelledby", "extTitle");
+  renderExtension();
+  if (!welcome.open) welcome.showModal();
+  $("extOpenChrome").focus();
+}
+
+async function finishExtensionStep() {
+  if (!state.settings.extensionSetup) await saveSetting({ extensionSetup: true });
+  $("welcome").close();
+  $("url").focus();
+}
+
 async function saveSetting(patch) {
   state.settings = await call(downy.setSettings, patch);
   renderSettings();
@@ -649,13 +702,33 @@ function wire() {
   $("setDirBtn").onclick = $("whereBtn").onclick;
   $("welcomeDirBtn").onclick = $("whereBtn").onclick;
 
-  // First run: the welcome screen stays up until the user confirms a download folder.
+  // First run: the welcome screen stays up until the user confirms a download folder,
+  // then shows how to add the Chrome extension.
   const welcome = $("welcome");
-  welcome.addEventListener("cancel", (e) => e.preventDefault());
-  $("welcomeDone").onclick = async () => {
+  welcome.addEventListener("cancel", (e) => {
+    e.preventDefault();
+    if (!$("stepExtension").hidden) finishExtensionStep();
+  });
+  $("welcomeNext").onclick = async () => {
     await saveSetting({ onboarded: true });
-    welcome.close();
-    $("url").focus();
+    showExtensionStep("first");
+  };
+  $("extOpenChrome").onclick = async () => {
+    const opened = await call(downy.openChrome);
+    toast(opened
+      ? "Chrome is opening. chrome://extensions is copied, so paste it into the address bar."
+      : "Chrome wasn't found. chrome://extensions is copied, so paste it into your browser's address bar.", !opened);
+  };
+  $("extCopyPath").onclick = async () => {
+    await call(downy.copyExtensionPath);
+    toast("Folder copied. Paste it into the Folder box after you click Load unpacked.");
+  };
+  $("extShowFolder").onclick = () => call(downy.showExtensionFolder);
+  $("extSkip").onclick = finishExtensionStep;
+  $("extDone").onclick = finishExtensionStep;
+  $("extSetupBtn").onclick = () => {
+    $("settings").close();
+    showExtensionStep("settings");
   };
   const form = $("settingsForm");
   for (const name of ["organize", "showOnStart", "closeToTray", "openAtLogin", "notify"]) {
@@ -677,6 +750,10 @@ function wire() {
     renderSettings();
     renderSidebar();
   });
+  downy.onExtension((x) => {
+    state.extension = x;
+    renderExtension();
+  });
   downy.onFocus((id) => {
     state.filter = "all";
     state.folder = null;
@@ -689,13 +766,14 @@ function wire() {
   wire();
   const res = await downy.state();
   if (!res.ok) return toast(res.error, true);
-  Object.assign(state, { downloads: res.data.downloads, settings: res.data.settings, tools: res.data.tools });
+  Object.assign(state, { downloads: res.data.downloads, settings: res.data.settings, tools: res.data.tools, extension: res.data.extension });
   if (res.data.maximized) {
     $("maxBtn").dataset.icon = "restore";
     paintIcons($("maxBtn").parentElement);
   }
   render();
   renderSettings();
+  renderExtension();
   defaultHint();
   if (!res.data.tools.ytdlp || !res.data.tools.ffmpeg) {
     toast(`${!res.data.tools.ytdlp ? "yt-dlp" : "ffmpeg"} was not found. Open Settings to see what Downy needs.`, true);
@@ -703,6 +781,8 @@ function wire() {
   $("url").focus();
   if (!state.settings.onboarded) {
     $("welcome").showModal();
-    $("welcomeDone").focus();
+    $("welcomeNext").focus();
+  } else if (!state.settings.extensionSetup) {
+    showExtensionStep("update");
   }
 })();
