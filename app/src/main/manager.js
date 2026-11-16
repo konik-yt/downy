@@ -734,7 +734,10 @@ class Manager extends EventEmitter {
       }
       if (rt.ctrl.signal.aborted) throw new AbortError();
     }
+    // yt-dlp would otherwise load a yt-dlp.conf from the save folder given to -P,
+    // where anything that downloads into that folder could have put one.
     const args = [
+      "--ignore-config",
       "-f", j.selector, "-P", dir, "-P", `temp:${j.tempDir}`, "-o", `${base}.%(ext)s`,
       "-N", String(s.connections), "--newline", "--progress", "--no-mtime", "--no-warnings",
       "--ffmpeg-location", tools.find("ffmpeg"),
