@@ -1,22 +1,19 @@
 // Checks GitHub releases for a newer Downy. The installed app downloads the new
 // setup exe in the background and runs it when Downy quits, or right away when
-// the user clicks Restart to update. The portable exe cannot replace itself, so
-// it only says that a new version is out and links to the release page.
-const { app, shell } = require("electron");
+// the user clicks Restart to update.
+const { app } = require("electron");
 const { EventEmitter } = require("events");
 
 const OWNER = "konik-yt";
 const REPO = "downy";
-const RELEASES = `https://github.com/${OWNER}/${REPO}/releases/latest`;
 const FIRST_CHECK = 15 * 1000;
 const EVERY = 4 * 60 * 60 * 1000;
 
 class Updater extends EventEmitter {
   constructor() {
     super();
-    this.portable = !!process.env.PORTABLE_EXECUTABLE_FILE;
-    // status: off (dev build), idle, checking, latest, available, downloading, ready, error
-    this.state = { status: app.isPackaged ? "idle" : "off", current: app.getVersion(), version: null, percent: 0, error: null, portable: this.portable };
+    // status: off (dev build), idle, checking, latest, downloading, ready, error
+    this.state = { status: app.isPackaged ? "idle" : "off", current: app.getVersion(), version: null, percent: 0, error: null };
     if (!app.isPackaged) return;
 
     // Loaded here so a dev build never touches it.
@@ -26,13 +23,13 @@ class Updater extends EventEmitter {
     autoUpdater.setFeedURL(process.env.DOWNY_UPDATE_URL
       ? { provider: "generic", url: process.env.DOWNY_UPDATE_URL }
       : { provider: "github", owner: OWNER, repo: REPO });
-    autoUpdater.autoDownload = !this.portable;
+    autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = false; // main.js installs after saving the downloads
     autoUpdater.logger = null;
 
     autoUpdater.on("checking-for-update", () => this.set({ status: this.state.status === "ready" ? "ready" : "checking", error: null }));
     autoUpdater.on("update-not-available", () => this.set({ status: "latest", version: null }));
-    autoUpdater.on("update-available", (info) => this.set({ status: this.portable ? "available" : "downloading", version: info.version, percent: 0 }));
+    autoUpdater.on("update-available", (info) => this.set({ status: "downloading", version: info.version, percent: 0 }));
     autoUpdater.on("download-progress", (p) => this.set({ status: "downloading", percent: Math.round(p.percent || 0) }));
     autoUpdater.on("update-downloaded", (info) => this.set({ status: "ready", version: info.version, percent: 100 }));
     autoUpdater.on("error", (e) => {
@@ -71,10 +68,6 @@ class Updater extends EventEmitter {
     if (!this.ready) return false;
     this.au.quitAndInstall(true, runAfter);
     return true;
-  }
-
-  openReleasePage() {
-    shell.openExternal(RELEASES);
   }
 }
 

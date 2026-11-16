@@ -1,7 +1,7 @@
 // The Chrome extension ships inside Downy. Chrome loads it with "Load unpacked"
-// from a copy in Downy's data folder, which keeps the same path across updates
-// (and for the portable exe, whose own files live in a temp folder). Each new
-// version of Downy refreshes the copy, and Chrome reads it on its next start.
+// from a copy in Downy's data folder, which keeps the same path across updates.
+// Each new version of Downy refreshes the copy, and Chrome reads it on its next
+// start.
 //
 // The copy also gets token.json, a secret the local API asks for on every call.
 // Web pages and other extensions can't read an extension's files, so only this
