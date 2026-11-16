@@ -1,0 +1,42 @@
+# Lints the app and the extension and runs the app's tests on every push and pull request.
+name: Check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    # Downy is a Windows app, and the tests check the internet mark Windows puts on downloads.
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    env:
+      # The tests never start Electron, so its 100 MB download is skipped.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
