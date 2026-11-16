@@ -115,9 +115,12 @@ function renderSidebar() {
     if (d.status !== "done") continue;
     const dir = folderOf(d);
     fc[dir] = (fc[dir] || 0) + 1;
-    const group = VIDEO_GROUPS.find((g) => dir.startsWith(g + "/"));
-    if (group) fc[group] = (fc[group] || 0) + 1;
+    const top = dir.split("/")[0];
+    if (top !== dir) fc[top] = (fc[top] || 0) + 1;
   }
+  // Folders the user picked in the confirm window: inside the download folder by name, the rest as Other.
+  const known = new Set(["Downloads", "Other", ...VIDEO_GROUPS]);
+  const picked = Object.keys(fc).filter((k) => !k.includes("/") && !known.has(k)).sort((a, b) => a.localeCompare(b));
   const order = (name) => {
     const m = /^(\d+)p$/.exec(name);
     return m ? -Number(m[1]) : name === "MP3" ? 1 : 2;
@@ -136,7 +139,7 @@ function renderSidebar() {
     return b;
   };
   const box = $("folders");
-  if (!fc.Downloads && !VIDEO_GROUPS.some((g) => fc[g])) {
+  if (!fc.Downloads && !fc.Other && !picked.length && !VIDEO_GROUPS.some((g) => fc[g])) {
     box.replaceChildren(el("p", "nav-note", "Finished files show up here. Files from Chrome go in Downloads, videos are sorted by format."));
   } else {
     const items = [];
@@ -146,6 +149,8 @@ function renderSidebar() {
       items.push(item(g, g, "video", fc[g]));
       for (const f of formatsIn(g)) items.push(item(`${g}/${f}`, f, /^\d+p$|^Best$/.test(f) ? "video" : "music", fc[`${g}/${f}`], true));
     }
+    for (const k of picked) items.push(item(k, k, "folder", fc[k]));
+    if (fc.Other) items.push(item("Other", "Other places", "folder", fc.Other));
     box.replaceChildren(...items);
   }
   if (state.settings) {
@@ -158,15 +163,26 @@ function renderSidebar() {
 
 const VIDEO_GROUPS = ["YouTube", "Videos"];
 
+// The folder name for "Saved to": a folder outside the download folder goes by its own name.
+function savedIn(d) {
+  const dir = folderOf(d);
+  if (dir !== "Other" || !d.filepath) return dir.replace(/\//g, " / ");
+  return d.filepath.split(/[\\/]/).slice(-2, -1)[0] || dir;
+}
+
 // Where a finished file sits inside the download folder, such as "Downloads", "YouTube/1080p" or "Videos/720p".
+// "Other" is a folder the user picked outside the download folder.
 function folderOf(d) {
-  if (d.source === "web") return "Downloads";
-  const dir = d.dir || d.folder || "";
+  const dir = d.dir || "";
+  if (d.source === "web" && (!dir || dir === "Downloads")) return "Downloads";
   if (VIDEO_GROUPS.some((g) => dir === g || dir.startsWith(g + "/"))) return dir;
+  // Older versions saved only the format folder, like "1080p".
+  if (dir && dir !== d.folder) return dir;
   return `${d.source === "video" ? "Videos" : "YouTube"}/${d.folder}`;
 }
 
 const folderLabel = (key) => {
+  if (key === "Other") return "Other places";
   const g = VIDEO_GROUPS.find((x) => key.startsWith(x + "/"));
   return g ? `${g} ${key.slice(g.length + 1)}` : key;
 };
@@ -199,7 +215,7 @@ function renderListHead(items) {
   };
   if (state.downloads.some((d) => d.status === "downloading" || d.status === "queued")) btn("Pause all", "pause", () => call(downy.pauseAll));
   if (state.downloads.some((d) => d.status === "paused")) btn("Resume all", "play", () => call(downy.resumeAll));
-  if (state.folder) btn("Open folder", "folder", () => call(downy.openFolder, state.folder));
+  if (state.folder && state.folder !== "Other") btn("Open folder", "folder", () => call(downy.openFolder, state.folder));
   if ((state.filter === "done" || state.filter === "failed") && !state.folder && items.length) {
     btn("Clear from list", "trash", () => call(downy.clear, state.filter));
   }
@@ -295,7 +311,7 @@ function statusLine(d) {
     case "paused": return ["pause", d.kind === "file" && d.resumable === false ? "Paused. This server cannot resume, so it starts over" : `Paused at ${pct}%`];
     case "merging": return ["layers", `Joining video and audio ${Math.round(d.postProgress * 100)}%`];
     case "converting": return ["music", d.kind === "mp3" ? `Converting to MP3 ${Math.round(d.postProgress * 100)}%` : "Saving M4A file"];
-    case "done": return ["check", `Saved to ${folderOf(d).replace("/", " / ")}`];
+    case "done": return ["check", `Saved to ${savedIn(d)}`];
     case "cancelled": return ["x", "Cancelled"];
     case "error": return ["alert", "Download failed"];
   }
@@ -568,7 +584,7 @@ function renderSettings() {
   const f = $("settingsForm");
   $("setDir").textContent = s.downloadDir;
   $("welcomeDir").textContent = s.downloadDir;
-  for (const name of ["organize", "showOnStart", "closeToTray", "openAtLogin", "notify"]) f.elements[name].checked = !!s[name];
+  for (const name of ["organize", "confirm", "showOnStart", "closeToTray", "openAtLogin", "notify"]) f.elements[name].checked = !!s[name];
   f.elements.connections.value = s.connections;
   f.elements.maxActive.value = s.maxActive;
   const t = state.tools || {};
@@ -883,7 +899,7 @@ function wire() {
     showExtensionStep("settings");
   };
   const form = $("settingsForm");
-  for (const name of ["organize", "showOnStart", "closeToTray", "openAtLogin", "notify"]) {
+  for (const name of ["organize", "confirm", "showOnStart", "closeToTray", "openAtLogin", "notify"]) {
     form.elements[name].addEventListener("change", (e) => saveSetting({ [name]: e.target.checked }));
   }
   for (const b of form.querySelectorAll("[data-step]")) {

@@ -9,6 +9,7 @@ const { startServer, PORT } = require("./server");
 const { ExtensionCopy, openChrome } = require("./extension");
 const { Updater } = require("./updater");
 const { Installer } = require("./installer");
+const { Prompts } = require("./prompt");
 
 const ASSETS = path.join(__dirname, "..", "renderer", "assets");
 
@@ -21,7 +22,7 @@ if (!app.requestSingleInstanceLock()) {
   let win = null;
   let tray = null;
   let quitting = false;
-  let settings, cache, manager, extension, updater, installer;
+  let settings, cache, manager, extension, updater, installer, prompts;
   let restartForUpdate = false;
   const startHidden = process.argv.includes("--hidden");
 
@@ -153,6 +154,12 @@ if (!app.requestSingleInstanceLock()) {
     cache = new InfoCache(path.join(dataDir, "cache"));
     manager = new Manager({ dataDir, cache, settings });
     cache.prune(manager.infoFiles());
+    prompts = new Prompts({
+      manager, cache, icon: icon("icon.png"),
+      onStart: (d) => {
+        if (settings.get().showOnStart) show(d.id);
+      },
+    });
     extension = new ExtensionCopy(dataDir);
     extension.sync();
     updater = new Updater();
@@ -173,7 +180,9 @@ if (!app.requestSingleInstanceLock()) {
     });
     manager.on("finished", (d) => {
       if (!settings.get().notify || !Notification.isSupported()) return;
-      const n = new Notification({ title: "Download saved", body: `${d.title}\nSaved to ${(d.dir || d.folder).replace(/\//g, " / ")}`, icon: path.join(ASSETS, "icon.png") });
+      // A folder the user picked outside the download folder ("Other") goes by its own name.
+      const where = d.dir === "Other" ? path.basename(path.dirname(d.filepath)) : (d.dir || d.folder).replace(/\//g, " / ");
+      const n = new Notification({ title: "Download saved", body: `${d.title}\nSaved to ${where}`, icon: path.join(ASSETS, "icon.png") });
       n.on("click", () => reveal(d.id));
       n.show();
     });
@@ -191,7 +200,7 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     try {
-      await startServer({ manager, cache, settings, tools, actions: { show, reveal, extensionSeen } });
+      await startServer({ manager, cache, settings, tools, prompts, actions: { show, reveal, extensionSeen } });
     } catch (e) {
       dialog.showErrorBox("Downy could not start its helper",
         `Port ${PORT} is in use. If the old Python helper is running, close it (end pythonw.exe in Task Manager) and start Downy again.\n\n${e.message}`);

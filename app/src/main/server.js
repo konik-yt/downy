@@ -6,7 +6,7 @@ const HOST = "127.0.0.1";
 const PORT = Number(process.env.DOWNY_PORT || 9614);
 const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 
-function startServer({ manager, cache, settings, tools, actions }) {
+function startServer({ manager, cache, settings, tools, prompts, actions }) {
   // Only the extension may call the API. Checking Host blocks DNS rebinding;
   // checking Origin blocks other websites.
   const allowed = (req) => {
@@ -119,18 +119,23 @@ function startServer({ manager, cache, settings, tools, actions }) {
         case "/api/download": {
           const url = String(data.url || "");
           if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");
+          // With "Ask before each download" on, the answer is a request id the extension follows with /api/prompt.
+          if (settings.get().confirm) return send(req, res, 200, { prompt: (await prompts.openVideo(url, String(data.option || ""))).id });
           const d = await manager.add(url, String(data.option || ""));
           if (settings.get().showOnStart) actions.show(d.id);
           return send(req, res, 200, d);
         }
         case "/api/file": {
-          const d = await manager.addFile({
+          const spec = {
             url: String(data.url || ""), filename: String(data.filename || ""), referrer: String(data.referrer || ""),
             cookies: String(data.cookies || ""), userAgent: String(data.userAgent || ""), mime: String(data.mime || ""),
-          });
+          };
+          if (settings.get().confirm) return send(req, res, 200, { prompt: (await prompts.openFile(spec)).id });
+          const d = await manager.addFile(spec);
           if (settings.get().showOnStart) actions.show(d.id);
           return send(req, res, 200, d);
         }
+        case "/api/prompt": return send(req, res, 200, prompts.status(id));
         case "/api/pause": manager.pause(id); break;
         case "/api/resume": manager.resume(id); break;
         case "/api/cancel": manager.cancel(id); break;

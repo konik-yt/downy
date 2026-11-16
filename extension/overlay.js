@@ -274,9 +274,36 @@
         setTimeout(() => this.setIdle(), 4000);
         return;
       }
-      this.activeId = res.data.id;
+      let id = res.data.id;
+      // Downy asks first in its own small window. Wait until the user answers there.
+      if (res.data.prompt) {
+        this.text.textContent = "Confirm in Downy…";
+        this.activeId = "prompt"; // keeps the button up while the window is open
+        this.updateVisibility();
+        id = await this.waitForPrompt(res.data.prompt, vid);
+        if (this.video?.id !== vid) return;
+        if (!id) {
+          this.activeId = null;
+          this.setIdle();
+          this.updateVisibility();
+          return;
+        }
+      }
+      this.activeId = id;
       this.missing = 0;
       this.poll();
+    }
+
+    // Resolves the download id once the user clicks Download, or null when they cancel.
+    async waitForPrompt(promptId, vid) {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 700));
+        if (this.video?.id !== vid) return null;
+        const res = await send({ type: "prompt", id: promptId });
+        if (!res?.ok) return null;
+        if (res.data.state === "started") return res.data.downloadId;
+        if (res.data.state !== "open") return null;
+      }
     }
 
     async poll() {
