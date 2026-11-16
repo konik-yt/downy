@@ -17,15 +17,15 @@
     :host(.hidden) { opacity: 0; pointer-events: none; }
     * { box-sizing: border-box; }
     .pill { display: flex; align-items: stretch; border-radius: 8px; overflow: hidden;
-      box-shadow: 0 2px 10px rgba(0,0,0,.35); background: #0b5f44; color: #fff; user-select: none; }
+      box-shadow: 0 2px 10px rgba(0,0,0,.35), inset 0 -10px 16px -12px #7864ffcc; background: #0d0b26; color: #fff; user-select: none; }
     .main { position: relative; display: flex; align-items: center; gap: 7px; padding: 7px 12px 7px 10px;
-      background: #059669; border: 0; color: inherit; font: inherit; font-weight: 600; cursor: pointer; overflow: hidden; }
-    .main:hover { background: #07a674; }
+      background: linear-gradient(90deg, #8a7fe8cc, #6f8cff99); border: 0; color: inherit; font: inherit; font-weight: 600; cursor: pointer; overflow: hidden; }
+    .main:hover { background: linear-gradient(90deg, #948df0, #7f9bff); }
     .main .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(255,255,255,.22); transition: width .4s ease; }
     .main span { position: relative; white-space: nowrap; }
     .arrow { position: relative; width: 14px; height: 14px; flex: none; }
     .side { display: grid; place-items: center; width: 28px; border: 0; border-left: 1px solid rgba(255,255,255,.18);
-      background: transparent; color: #d6f5e8; font: inherit; font-weight: 700; cursor: pointer; }
+      background: transparent; color: #e6e2ff; font: inherit; font-weight: 700; cursor: pointer; }
     .side:hover { background: rgba(255,255,255,.12); color: #fff; }
     .menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 280px; max-width: 360px; max-height: 60vh; overflow: auto;
       background: #fff; color: #1b1f1c; border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.4); padding: 5px 0; display: none; }
@@ -34,7 +34,7 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .menu button { display: flex; width: 100%; gap: 10px; align-items: baseline; padding: 7px 14px; border: 0; background: none;
       font: inherit; color: inherit; text-align: left; cursor: pointer; }
-    .menu button:hover, .menu button:focus-visible { background: #e3f4ec; outline: none; }
+    .menu button:hover, .menu button:focus-visible { background: #ece9ff; outline: none; }
     .menu .n { color: #8a948e; width: 16px; flex: none; font-variant-numeric: tabular-nums; }
     .menu .label { flex: 1; }
     .menu .size { color: #66706a; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -42,11 +42,11 @@
     .menu .note { padding: 10px 14px; color: #66706a; }
     .menu .note.bad { color: #b42318; }
     @media (prefers-color-scheme: dark) {
-      .menu { background: #212622; color: #e8ece9; }
-      .menu .head, .menu .sep { border-color: #343b36; }
-      .menu .sep { background: #343b36; }
-      .menu button:hover, .menu button:focus-visible { background: #173326; }
-      .menu .head, .menu .size, .menu .note { color: #9aa59e; }
+      .menu { background: #0d0c20; color: #f1f0ff; }
+      .menu .head, .menu .sep { border-color: #24224a; }
+      .menu .sep { background: #24224a; }
+      .menu button:hover, .menu button:focus-visible { background: #1e1b48; }
+      .menu .head, .menu .size, .menu .note { color: #a6a3c0; }
       .menu .note.bad { color: #ff8a7a; }
     }
   `;
@@ -110,7 +110,7 @@
       this.fill = el("div", "fill");
       this.text = el("span", "", "Download this video");
       this.main.append(this.fill, arrowIcon(), this.text);
-      const help = el("button", "side", "?"); help.title = "Open the Downy download manager";
+      const help = el("button", "side", "?"); help.title = "Open the Downy app";
       const close = el("button", "side", "×"); close.title = "Hide for this video";
       this.pill.append(this.main, help, close);
       this.menu = el("div", "menu");
@@ -208,6 +208,23 @@
       return this.loading;
     }
 
+    // Downy is not running: open it through its downy:// link (this still counts as
+    // part of the click, so Chrome allows it), then wait for it to answer.
+    async launchApp() {
+      this.menu.replaceChildren(el("div", "note", "Starting Downy…"));
+      location.href = "downy://show";
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 700));
+        const st = await send({ type: "status" });
+        if (st?.ok) {
+          this.loading = null;
+          this.menu.replaceChildren(el("div", "note", "Reading formats from YouTube…"));
+          return this.prefetch();
+        }
+      }
+      return { ok: false, error: "Downy did not start. Open the Downy app from the Start menu, then try again." };
+    }
+
     closeMenu() {
       this.menu.classList.remove("open");
       this.updateVisibility();
@@ -219,7 +236,8 @@
       this.updateVisibility();
       if (this.formatsFor === this.video?.id && this.formats) return this.renderFormats();
       this.menu.replaceChildren(el("div", "note", "Reading formats from YouTube…"));
-      const res = await this.prefetch();
+      let res = await this.prefetch();
+      if (res && !res.ok && res.offline) res = await this.launchApp();
       if (!this.menu.classList.contains("open")) return;
       if (res && !res.ok) this.menu.replaceChildren(el("div", "note bad", res.error));
       else this.renderFormats();
@@ -271,6 +289,8 @@
         this.text.textContent = `Downloading ${pct}%  ${d.speed ? size(d.speed) + "/s" : ""}`.trim();
       } else if (d.status === "merging") {
         this.text.textContent = "Joining video and audio…";
+      } else if (d.status === "paused") {
+        this.text.textContent = `Paused at ${pct}%`;
       } else if (d.status === "converting") {
         this.text.textContent = "Converting to MP3…";
       } else {
