@@ -491,7 +491,7 @@ class Manager extends EventEmitter {
 
   async run(j, rt) {
     try {
-      if (j.kind !== "file" && !tools.find("ffmpeg")) throw new Error("ffmpeg was not found. Install it with: winget install Gyan.FFmpeg");
+      if (j.kind !== "file" && !tools.find("ffmpeg")) throw new Error("ffmpeg was not found. Open Settings in Downy and click Install tools.");
       if (j.mode === "ytdlp") await this.runYtdlp(j, rt);
       else await this.runSegmented(j, rt);
       if (j.mode === "segmented") await this.postProcess(j, rt);

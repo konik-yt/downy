@@ -32,9 +32,10 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
 
 ## Requirements
 
-- `yt-dlp` and `ffmpeg`. Downy finds them on PATH or in winget's install folder:
-  `winget install yt-dlp.yt-dlp Gyan.FFmpeg`
+- `yt-dlp` and `ffmpeg`. Downy finds them on PATH or in winget's install folder.
 - Node.js or Deno, which yt-dlp needs to read YouTube.
+
+When any of them is missing, Downy offers to install it with winget (`yt-dlp.yt-dlp`, `Gyan.FFmpeg`, `DenoLand.Deno`), on the welcome screen or from Settings, Install tools. Once a day Downy runs `winget upgrade yt-dlp.yt-dlp` when yt-dlp came from winget, since YouTube changes often.
 
 ## Install
 
@@ -65,7 +66,7 @@ npm run dist       # build the installer and the portable exe into app/dist
 
 For testing, `DOWNY_USER_DATA` points Downy at a separate settings and history folder, `DOWNY_PORT` moves the local API off 9614, `DOWNY_UPDATE_URL` points the updater at a folder with `latest.yml` and a setup exe instead of GitHub, and `DOWNY_SCREENSHOT` saves screenshots of the window every few seconds.
 
-Keep yt-dlp current with `yt-dlp -U` (or `winget upgrade yt-dlp.yt-dlp`), since YouTube changes often.
+A yt-dlp from somewhere other than winget is not upgraded by Downy. Keep it current with `yt-dlp -U`.
 
 ## Releasing
 

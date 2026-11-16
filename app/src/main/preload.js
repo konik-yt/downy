@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("downy", {
   setSettings: call("settings:set"),
   chooseFolder: call("settings:choose-folder"),
   recheckTools: call("tools:recheck"),
+  installTools: call("tools:install"),
+  onInstall: on("install"),
   formats: call("formats"),
   download: call("download"),
   addFile: call("add-file"),

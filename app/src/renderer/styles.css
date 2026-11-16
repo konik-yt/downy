@@ -416,6 +416,17 @@ body:has(.main.has-list) { --sky-dim: .62; }
 #extStatusSettings[data-tone="ok"] { color: var(--mint); }
 #extStatusSettings[data-tone="warn"] { color: var(--amber); }
 .foot-gap { flex: 1; }
+.tool-rows { list-style: none; margin: 10px 0 0; padding: 0; }
+.tool-rows li { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.tool-rows .ic { width: 16px; height: 16px; flex: none; }
+.tool-rows .tool-name { font-weight: 500; min-width: 64px; }
+.tool-rows .tool-state { flex: 1; min-width: 0; color: var(--muted); font-size: 12.5px; text-align: right; }
+.tool-rows li[data-state="found"] .ic, .tool-rows li[data-state="found"] .tool-state { color: var(--mint); }
+.tool-rows li[data-state="missing"] .ic { color: var(--amber); }
+.tool-rows li[data-state="busy"] .ic { color: var(--accent-hi); animation: spin 1s linear infinite; }
+.tool-bar { width: 120px; height: 4px; border-radius: 4px; background: var(--track); overflow: hidden; flex: none; }
+.tool-bar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .2s; }
+.tools-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .btn.ghost { border-color: #0000; background: transparent; color: var(--muted); }
 .btn.ghost:hover { color: var(--text); background: #b4aaff14; }
 .btn.primary { padding: 8px 16px; border-color: #0000; background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: #fff; font-weight: 600; }

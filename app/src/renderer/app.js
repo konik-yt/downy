@@ -6,6 +6,9 @@ const state = {
   tools: {},
   extension: null, // { dir, version, seen, seenVersion, current }
   update: null, // { status, current, version, percent, error, portable }
+  install: null, // { running, tool, label, received, total, error, done }
+  steps: 2, // steps on the first-run welcome screen: 3 when tools need installing
+  toolsMode: "first", // "first" run, "missing" at a later start, or "settings"
   filter: "all",
   folder: null,
   picker: null, // { url, info }
@@ -570,6 +573,7 @@ function renderSettings() {
     if (found) span.title = found;
     return span;
   }));
+  renderTools();
 }
 
 // ---------------------------------------------------------------- updates
@@ -612,6 +616,96 @@ async function updateAction() {
   renderUpdate();
 }
 
+// ------------------------------------------------------------------ tools
+
+const TOOL_ROWS = [["yt-dlp", "ytdlp", "yt-dlp"], ["ffmpeg", "ffmpeg", "ffmpeg"], ["deno", "jsRuntime", "Deno"]];
+
+function toolsMissing() {
+  const t = state.tools || {};
+  return !t.ytdlp || !t.ffmpeg || !t.jsRuntime;
+}
+
+function renderTools() {
+  const t = state.tools || {};
+  const st = state.install || {};
+  $("toolRows").replaceChildren(...TOOL_ROWS.map(([name, key, label]) => {
+    const found = t[key];
+    const busy = !found && st.running && st.tool === name;
+    const li = el("li");
+    li.dataset.state = found ? "found" : busy ? "busy" : "missing";
+    li.innerHTML = icon(found ? "check" : busy ? "loader" : "alert");
+    li.append(el("span", "tool-name", label));
+    let text = "Not found, Downy installs it";
+    if (found) text = key === "jsRuntime" && !/deno/i.test(found) ? "Node.js found, Deno not needed" : "Found";
+    else if (busy) text = st.total ? `${size(st.received)} of ${size(st.total)}` : "Starting";
+    const stateText = el("span", "tool-state", text);
+    if (found) stateText.title = found;
+    li.append(stateText);
+    if (busy) {
+      const bar = el("span", "tool-bar");
+      const fill = el("span");
+      fill.style.width = st.total ? `${Math.round((st.received / st.total) * 100)}%` : "0";
+      bar.append(fill);
+      li.append(bar);
+    }
+    return li;
+  }));
+  const status = $("toolsStatus");
+  if (st.error) {
+    status.textContent = st.error;
+    status.dataset.tone = "warn";
+  } else if (st.running) {
+    status.textContent = `Installing ${st.label}`;
+    status.dataset.tone = "wait";
+  } else if (!toolsMissing()) {
+    status.textContent = "All tools are ready";
+    status.dataset.tone = "ok";
+  } else {
+    status.textContent = "";
+    status.dataset.tone = "";
+  }
+  const install = $("toolsInstall");
+  install.disabled = !!st.running;
+  install.textContent = st.running ? "Installing" : !toolsMissing() ? (state.toolsMode === "settings" ? "Done" : "Next") : st.error ? "Try again" : "Install";
+  $("toolsSkip").hidden = !toolsMissing();
+  $("toolsSkip").textContent = state.toolsMode === "settings" ? "Close" : "Skip for now";
+  $("toolsInstallSettings").hidden = !toolsMissing();
+}
+
+function showWelcomeStep(id) {
+  for (const s of ["stepFolder", "stepTools", "stepExtension"]) $(s).hidden = s !== id;
+}
+
+function showToolsStep(mode) {
+  state.toolsMode = mode;
+  const welcome = $("welcome");
+  showWelcomeStep("stepTools");
+  $("toolsStepCount").hidden = mode !== "first";
+  $("toolsStepCount").textContent = `Step 2 of ${state.steps}`;
+  $("toolsTitle").textContent = mode === "missing" ? "Downy needs a few tools" : "Install the download tools";
+  welcome.setAttribute("aria-labelledby", "toolsTitle");
+  renderTools();
+  if (!welcome.open) welcome.showModal();
+  $("toolsInstall").focus();
+}
+
+// Moves on from the tools step: to the extension step on a first run, or closes.
+function leaveToolsStep() {
+  if (state.toolsMode === "first") showExtensionStep("first");
+  else if (state.toolsMode === "missing" && !state.settings.extensionSetup) showExtensionStep("update");
+  else $("welcome").close();
+}
+
+async function installTools() {
+  if (!toolsMissing()) return leaveToolsStep();
+  state.install = { ...(state.install || {}), running: true, error: null };
+  renderTools();
+  const res = await call(downy.installTools);
+  if (res) Object.assign(state, { install: res.install, tools: res.tools });
+  renderTools();
+  renderSettings();
+}
+
 // ------------------------------------------------------- chrome extension
 
 function extensionStatus(x, waiting) {
@@ -643,9 +737,9 @@ function renderExtension() {
 // mode: "first" for a new install, "update" for someone coming from 2.0, "settings" from the Set up button.
 function showExtensionStep(mode) {
   const welcome = $("welcome");
-  $("stepFolder").hidden = true;
-  $("stepExtension").hidden = false;
+  showWelcomeStep("stepExtension");
   $("extStepCount").hidden = mode !== "first";
+  $("extStepCount").textContent = `Step ${state.steps} of ${state.steps}`;
   $("extRemoveStep").hidden = mode === "first";
   $("extSkip").textContent = mode === "settings" ? "Close" : "Skip for now";
   $("extTitle").textContent = mode === "update" ? "Downy now keeps its Chrome extension up to date" : "Add Downy to Chrome";
@@ -749,10 +843,18 @@ function wire() {
   welcome.addEventListener("cancel", (e) => {
     e.preventDefault();
     if (!$("stepExtension").hidden) finishExtensionStep();
+    else if (!$("stepTools").hidden && !state.install?.running) leaveToolsStep();
   });
   $("welcomeNext").onclick = async () => {
     await saveSetting({ onboarded: true });
-    showExtensionStep("first");
+    if (toolsMissing()) showToolsStep("first");
+    else showExtensionStep("first");
+  };
+  $("toolsInstall").onclick = installTools;
+  $("toolsSkip").onclick = leaveToolsStep;
+  $("toolsInstallSettings").onclick = () => {
+    $("settings").close();
+    showToolsStep("settings");
   };
   $("extOpenChrome").onclick = async () => {
     const opened = await call(downy.openChrome);
@@ -793,6 +895,10 @@ function wire() {
     renderSettings();
     renderSidebar();
   });
+  downy.onInstall((st) => {
+    state.install = st;
+    renderTools();
+  });
   downy.onUpdate((u) => {
     const wasReady = state.update?.status === "ready";
     state.update = u;
@@ -815,7 +921,9 @@ function wire() {
   wire();
   const res = await downy.state();
   if (!res.ok) return toast(res.error, true);
-  Object.assign(state, { downloads: res.data.downloads, settings: res.data.settings, tools: res.data.tools, extension: res.data.extension, update: res.data.update });
+  Object.assign(state, { downloads: res.data.downloads, settings: res.data.settings, tools: res.data.tools, extension: res.data.extension, update: res.data.update, install: res.data.install });
+  state.steps = toolsMissing() ? 3 : 2;
+  $("folderStepCount").textContent = `Step 1 of ${state.steps}`;
   if (res.data.maximized) {
     $("maxBtn").dataset.icon = "restore";
     paintIcons($("maxBtn").parentElement);
@@ -824,14 +932,14 @@ function wire() {
   renderSettings();
   renderExtension();
   renderUpdate();
+  renderTools();
   defaultHint();
-  if (!res.data.tools.ytdlp || !res.data.tools.ffmpeg) {
-    toast(`${!res.data.tools.ytdlp ? "yt-dlp" : "ffmpeg"} was not found. Open Settings to see what Downy needs.`, true);
-  }
   $("url").focus();
   if (!state.settings.onboarded) {
     $("welcome").showModal();
     $("welcomeNext").focus();
+  } else if (toolsMissing()) {
+    showToolsStep("missing");
   } else if (!state.settings.extensionSetup) {
     showExtensionStep("update");
   }
