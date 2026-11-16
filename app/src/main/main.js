@@ -230,7 +230,7 @@ if (!app.requestSingleInstanceLock()) {
   handle("resume-all", () => manager.resumeAll());
   handle("cancel", (id) => manager.cancel(id));
   handle("remove", (id) => manager.remove(id));
-  handle("clear", () => manager.clearFinished());
+  handle("clear", (scope) => manager.clearFinished(scope));
   handle("open-file", (id) => {
     const j = manager.get(id);
     if (!j?.filepath || !fs.existsSync(j.filepath)) throw new Error("The file was moved or deleted.");

@@ -314,9 +314,11 @@ class Manager extends EventEmitter {
     this.changed();
   }
 
-  clearFinished() {
+  // scope "done" clears finished downloads, "failed" clears failed and cancelled ones, anything else clears both.
+  clearFinished(scope) {
+    const match = scope === "done" ? (s) => s === "done" : scope === "failed" ? (s) => s === "error" || s === "cancelled" : (s) => FINISHED.has(s);
     for (const [id, j] of this.jobs) {
-      if (!FINISHED.has(j.status)) continue;
+      if (!match(j.status)) continue;
       this.jobs.delete(id);
       this.cleanup(j);
     }
