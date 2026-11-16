@@ -297,14 +297,18 @@ class Manager extends EventEmitter {
   remove(id) {
     const j = this.jobs.get(id);
     if (!j || this.runtime.has(id)) return;
-    if (!FINISHED.has(j.status)) this.cleanup(j);
     this.jobs.delete(id);
+    this.cleanup(j); // a failed job still has its part files for a retry
     this.save();
     this.changed();
   }
 
   clearFinished() {
-    for (const [id, j] of this.jobs) if (FINISHED.has(j.status)) this.jobs.delete(id);
+    for (const [id, j] of this.jobs) {
+      if (!FINISHED.has(j.status)) continue;
+      this.jobs.delete(id);
+      this.cleanup(j);
+    }
     this.save();
     this.changed();
   }
@@ -558,7 +562,7 @@ class Manager extends EventEmitter {
     const s = this.settings.get();
     const dir = this.targetDir(j);
     // yt-dlp reads % as the start of a template field, so a literal % is written %%.
-    const base = (safeName(j.title) + (j.kind === "video" ? ` (${j.height}p)` : "")).replace(/%/g, "%%");
+    const base = this.ytdlpBase(j).replace(/%/g, "%%");
     // The stream links in an old info file have expired; get fresh ones, or let yt-dlp read the page.
     let infoFile = fs.existsSync(j.infoFile || "") ? j.infoFile : "";
     if (infoFile && Date.now() - fs.statSync(infoFile).mtimeMs > INFO_TTL) {
@@ -623,9 +627,28 @@ class Manager extends EventEmitter {
     });
   }
 
+  ytdlpBase(j) {
+    return safeName(j.title) + (j.kind === "video" ? ` (${j.height}p)` : "");
+  }
+
+  // Deletes a job's temporary files. Only ever touches files in .downy-parts.
   cleanup(j) {
     for (const st of j.streams || []) {
-      if (st.path) fs.rmSync(st.path, { force: true });
+      if (st.path && path.basename(path.dirname(st.path)) === ".downy-parts") removeQuietly(st.path);
+    }
+    if (j.mode !== "ytdlp") return;
+    // yt-dlp names its temp files after the output name, so keep those of other unfinished jobs.
+    const others = [...this.jobs.values()]
+      .filter((o) => o !== j && o.mode === "ytdlp" && !FINISHED.has(o.status))
+      .map((o) => this.ytdlpBase(o) + ".");
+    const base = this.ytdlpBase(j) + ".";
+    const dir = path.join(this.settings.get().downloadDir, ".downy-parts");
+    let names = [];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {}
+    for (const n of names) {
+      if (n.startsWith(base) && !others.some((o) => n.startsWith(o))) removeQuietly(path.join(dir, n));
     }
   }
 }
