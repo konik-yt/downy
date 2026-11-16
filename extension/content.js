@@ -235,13 +235,15 @@
       if (this.menu.classList.contains("open")) return this.closeMenu();
       this.menu.classList.add("open");
       this.updateVisibility();
-      if (this.formatsFor === this.video?.id && this.formats) return this.renderFormats();
+      const vid = this.video?.id;
+      if (this.formatsFor === vid && this.formats) return this.renderFormats();
       this.menu.replaceChildren(el("div", "note", "Reading formats from YouTube…"));
       let res = await this.prefetch();
-      if (res && !res.ok && res.offline) res = await this.launchApp();
-      if (!this.menu.classList.contains("open")) return;
+      if (res && !res.ok && res.offline && this.video?.id === vid) res = await this.launchApp();
+      // The user may have moved to another video while this was loading.
+      if (!this.menu.classList.contains("open") || this.video?.id !== vid) return;
       if (res && !res.ok) this.menu.replaceChildren(el("div", "note bad", res.error));
-      else this.renderFormats();
+      else if (this.formatsFor === vid && this.formats) this.renderFormats();
     }
 
     renderFormats() {
@@ -264,7 +266,9 @@
     async start(option) {
       this.closeMenu();
       this.text.textContent = "Starting…";
+      const vid = this.video.id;
       const res = await send({ type: "download", url: this.video.url, option: option.id });
+      if (this.video?.id !== vid) return; // the button now belongs to another video
       if (!res?.ok) {
         this.text.textContent = "Download failed";
         this.menu.replaceChildren(el("div", "note bad", res?.error || "Unknown error"));
