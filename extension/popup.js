@@ -16,7 +16,7 @@ function size(n) {
 }
 
 const STATUS = {
-  queued: "Starting", merging: "Joining video and audio", converting: "Converting to MP3",
+  queued: "Waiting", paused: "Paused", merging: "Joining video and audio", converting: "Converting to MP3",
   done: "Saved", cancelled: "Cancelled", error: "Failed",
 };
 
@@ -24,11 +24,11 @@ async function refresh() {
   const res = await send({ type: "list" });
   const list = $("list"), status = $("status");
   if (!res?.ok) {
-    status.className = "bad"; status.textContent = "Helper offline";
-    list.replaceChildren(el("li", "note bad", res?.error || "The Downy helper is not running."));
+    status.className = "bad"; status.textContent = "Not running";
+    list.replaceChildren(el("li", "note bad", res?.error || "Downy is not running. Open the Downy app."));
     return setTimeout(refresh, 2000);
   }
-  status.className = "ok"; status.textContent = "Helper running";
+  status.className = "ok"; status.textContent = "Running";
   const items = res.data.downloads.slice(0, 6);
   if (!items.length) {
     list.replaceChildren(el("li", "note", "Open a YouTube video and use the Download this video button."));
