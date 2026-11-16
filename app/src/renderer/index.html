@@ -146,24 +146,68 @@
       <input type="checkbox" class="switch" name="notify">
     </label>
 
+    <div class="field">
+      <span class="field-text">
+        <span class="field-label">Chrome extension</span>
+        <span class="field-help" id="extStatusSettings"></span>
+      </span>
+      <button type="button" class="btn" id="extSetupBtn">Set up</button>
+    </div>
+
     <div class="tools" id="toolsList"></div>
   </form>
 </dialog>
 
 <dialog class="modal welcome" id="welcome" aria-labelledby="welcomeTitle">
   <div class="modal-inner">
-    <h2 id="welcomeTitle">Welcome to Downy</h2>
-    <p class="welcome-sub">Choose where Downy saves your downloads. You can change this later in Settings.</p>
-    <div class="field">
-      <div class="field-text">
-        <span class="field-label">Download folder</span>
-        <span class="field-help path" id="welcomeDir"></span>
+    <img class="welcome-logo" src="assets/icon.png" alt="" width="44" height="44">
+
+    <section class="welcome-step" id="stepFolder">
+      <p class="step-count">Step 1 of 2</p>
+      <h2 id="welcomeTitle">Welcome to Downy</h2>
+      <p class="welcome-sub">Choose where Downy saves your downloads. You can change this later in Settings.</p>
+      <div class="field">
+        <div class="field-text">
+          <span class="field-label">Download folder</span>
+          <span class="field-help path" id="welcomeDir"></span>
+        </div>
+        <button type="button" class="btn" id="welcomeDirBtn">Choose folder</button>
       </div>
-      <button type="button" class="btn" id="welcomeDirBtn">Choose folder</button>
-    </div>
-    <div class="welcome-foot">
-      <button type="button" class="btn primary" id="welcomeDone">Use this folder</button>
-    </div>
+      <div class="welcome-foot">
+        <button type="button" class="btn primary" id="welcomeNext">Use this folder</button>
+      </div>
+    </section>
+
+    <section class="welcome-step" id="stepExtension" hidden>
+      <p class="step-count" id="extStepCount">Step 2 of 2</p>
+      <h2 id="extTitle">Add Downy to Chrome</h2>
+      <p class="welcome-sub" id="extSub">The extension puts a Download button on YouTube videos and hands Chrome downloads to Downy. Chrome only lets you add it by hand, which takes a minute.</p>
+      <ol class="ext-steps">
+        <li>
+          <span class="ext-text">Open Chrome's extensions page. This button opens Chrome and copies <code>chrome://extensions</code>, so paste it into the address bar and press Enter.</span>
+          <button type="button" class="btn" id="extOpenChrome">Open Chrome</button>
+        </li>
+        <li id="extRemoveStep" hidden>
+          <span class="ext-text">If an older Downy is in the list, click Remove on it, so Chrome doesn't run two copies.</span>
+        </li>
+        <li>
+          <span class="ext-text">Turn on Developer mode at the top right of the page.</span>
+        </li>
+        <li>
+          <span class="ext-text">Click Load unpacked. Paste this folder into the Folder box at the bottom, then click Select Folder.
+            <span class="field-help path" id="extDir"></span>
+          </span>
+          <button type="button" class="btn" id="extCopyPath">Copy folder</button>
+        </li>
+      </ol>
+      <p class="ext-status" id="extStatus" role="status"></p>
+      <div class="welcome-foot">
+        <button type="button" class="btn ghost" id="extShowFolder">Show folder</button>
+        <span class="foot-gap"></span>
+        <button type="button" class="btn" id="extSkip">Skip for now</button>
+        <button type="button" class="btn primary" id="extDone">Done</button>
+      </div>
+    </section>
   </div>
 </dialog>
 

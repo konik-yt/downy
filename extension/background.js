@@ -2,11 +2,13 @@
 // hands normal Chrome downloads to Downy. Requests go from here (not the page)
 // so the app sees the extension origin.
 const BASE = "http://127.0.0.1:9614";
+// Sent with every request so Downy can tell which version of the extension is connected.
+const VERSION = chrome.runtime.getManifest().version;
 
 async function call(path, body) {
   let res;
   try {
-    res = await fetch(BASE + path, body === undefined ? {} : {
+    res = await fetch(`${BASE}${path}?ext=${encodeURIComponent(VERSION)}`, body === undefined ? {} : {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -107,3 +109,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   );
   return true;
 });
+
+// Say hello as soon as Chrome loads the extension, so Downy's setup screen sees it.
+const hello = () => call("/api/status").catch(() => {});
+chrome.runtime.onInstalled.addListener(hello);
+chrome.runtime.onStartup.addListener(hello);

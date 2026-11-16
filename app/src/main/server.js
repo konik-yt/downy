@@ -63,7 +63,13 @@ function startServer({ manager, cache, settings, tools, actions }) {
       res.writeHead(403);
       return res.end();
     }
-    const path = new URL(req.url, "http://x").pathname;
+    const url = new URL(req.url, "http://x");
+    const path = url.pathname;
+    // The extension adds its version to every request (versions before 2.1 send none).
+    // A GET from the extension may come without an Origin header, so the version counts too.
+    if (req.headers.origin?.startsWith("chrome-extension://") || url.searchParams.has("ext")) {
+      actions.extensionSeen(url.searchParams.get("ext"));
+    }
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "Access-Control-Allow-Origin": req.headers.origin,
