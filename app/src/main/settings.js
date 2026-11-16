@@ -27,6 +27,8 @@ class Settings extends EventEmitter {
       saved = JSON.parse(fs.readFileSync(this.file, "utf8"));
       // Settings saved by a version without the welcome screen belong to someone already set up.
       if (saved && typeof saved === "object" && saved.onboarded === undefined) saved.onboarded = true;
+      // A blank folder would make paths relative to wherever Downy runs from.
+      for (const k of Object.keys(saved || {})) if (typeof DEFAULTS[k] === "string" && !String(saved[k] ?? "").trim()) delete saved[k];
     } catch {}
     this.values = { ...DEFAULTS, ...saved };
   }

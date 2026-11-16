@@ -109,19 +109,20 @@ function renderSidebar() {
     return b;
   }));
 
-  // Folders mirror the disk: Downloads for files, YouTube with one folder per format.
+  // Folders mirror the disk: Downloads for files, then YouTube and Videos with one folder per format.
   const fc = {};
   for (const d of state.downloads) {
     if (d.status !== "done") continue;
     const dir = folderOf(d);
     fc[dir] = (fc[dir] || 0) + 1;
-    if (dir.startsWith("YouTube/")) fc.YouTube = (fc.YouTube || 0) + 1;
+    const group = VIDEO_GROUPS.find((g) => dir.startsWith(g + "/"));
+    if (group) fc[group] = (fc[group] || 0) + 1;
   }
   const order = (name) => {
     const m = /^(\d+)p$/.exec(name);
     return m ? -Number(m[1]) : name === "MP3" ? 1 : 2;
   };
-  const formats = Object.keys(fc).filter((k) => k.startsWith("YouTube/")).map((k) => k.slice(8))
+  const formatsIn = (group) => Object.keys(fc).filter((k) => k.startsWith(group + "/")).map((k) => k.slice(group.length + 1))
     .sort((a, b) => order(a) - order(b) || a.localeCompare(b));
   const item = (key, label, ic, count, sub = false) => {
     const b = el("button", "nav-item" + (sub ? " sub" : ""));
@@ -135,14 +136,15 @@ function renderSidebar() {
     return b;
   };
   const box = $("folders");
-  if (!fc.Downloads && !fc.YouTube) {
-    box.replaceChildren(el("p", "nav-note", "Finished files show up here. Files from Chrome go in Downloads, YouTube files are sorted by format."));
+  if (!fc.Downloads && !VIDEO_GROUPS.some((g) => fc[g])) {
+    box.replaceChildren(el("p", "nav-note", "Finished files show up here. Files from Chrome go in Downloads, videos are sorted by format."));
   } else {
     const items = [];
     if (fc.Downloads) items.push(item("Downloads", "Downloads", "folder", fc.Downloads));
-    if (fc.YouTube) {
-      items.push(item("YouTube", "YouTube", "video", fc.YouTube));
-      for (const f of formats) items.push(item(`YouTube/${f}`, f, /^\d+p$/.test(f) ? "video" : "music", fc[`YouTube/${f}`], true));
+    for (const g of VIDEO_GROUPS) {
+      if (!fc[g]) continue;
+      items.push(item(g, g, "video", fc[g]));
+      for (const f of formatsIn(g)) items.push(item(`${g}/${f}`, f, /^\d+p$|^Best$/.test(f) ? "video" : "music", fc[`${g}/${f}`], true));
     }
     box.replaceChildren(...items);
   }
@@ -154,15 +156,20 @@ function renderSidebar() {
 
 // ------------------------------------------------------------------- list
 
-// Where a finished file sits inside the download folder, such as "Downloads" or "YouTube/1080p".
+const VIDEO_GROUPS = ["YouTube", "Videos"];
+
+// Where a finished file sits inside the download folder, such as "Downloads", "YouTube/1080p" or "Videos/720p".
 function folderOf(d) {
   if (d.source === "web") return "Downloads";
   const dir = d.dir || d.folder || "";
-  if (dir === "YouTube" || dir.startsWith("YouTube/")) return dir;
-  return `YouTube/${d.folder}`;
+  if (VIDEO_GROUPS.some((g) => dir === g || dir.startsWith(g + "/"))) return dir;
+  return `${d.source === "video" ? "Videos" : "YouTube"}/${d.folder}`;
 }
 
-const folderLabel = (key) => (key.startsWith("YouTube/") ? `YouTube ${key.slice(8)}` : key);
+const folderLabel = (key) => {
+  const g = VIDEO_GROUPS.find((x) => key.startsWith(x + "/"));
+  return g ? `${g} ${key.slice(g.length + 1)}` : key;
+};
 
 // Unfinished downloads stay on top, newest first within each group.
 const rank = (d) => (d.status === "downloading" || d.status === "merging" || d.status === "converting" ? 0 : d.status === "queued" ? 1 : d.status === "paused" ? 2 : 3);

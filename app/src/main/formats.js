@@ -16,6 +16,15 @@ function isYoutubeUrl(url) {
   }
 }
 
+// Video pages on any site go to yt-dlp, which says whether it knows the site.
+function isHttpUrl(url) {
+  try {
+    return /^https?:$/.test(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 function humanSize(n) {
   if (!n) return "";
   const units = ["B", "KB", "MB", "GB"];
@@ -117,6 +126,11 @@ function buildOptions(info) {
     });
   }
 
+  // Some sites list formats without a height. yt-dlp picks the best one itself.
+  if (!options.length && formats.some((f) => f.vcodec !== "none")) {
+    options.push({ id: "best", kind: "video", label: "MP4 file, best quality", folder: "Best", height: null, size: 0, sizeText: "", streams: [], selector: "bv*+ba/b" });
+  }
+
   if (audio) {
     const size = fmtSize(audio);
     options.push({ id: "m4a", kind: "audio", label: "M4A audio only", folder: "M4A", size, sizeText: humanSize(size), streams: [stream("audio", audio)] });
@@ -129,20 +143,36 @@ function publicOptions(options) {
   return options.map(({ id, kind, label, size, sizeText, folder }) => ({ id, kind, label, size, sizeText, folder }));
 }
 
+// Cookies from the extension, as chrome.cookies gives them, in the Netscape file format yt-dlp reads.
+function cookieFile(list) {
+  const lines = ["# Netscape HTTP Cookie File"];
+  for (const c of list) {
+    if (!c || !c.name || !c.domain) continue;
+    const clean = (v) => String(v ?? "").replace(/[\t\r\n]/g, "");
+    const domain = c.hostOnly ? c.domain.replace(/^\./, "") : "." + c.domain.replace(/^\./, "");
+    lines.push([clean(domain), c.hostOnly ? "FALSE" : "TRUE", clean(c.path || "/"), c.secure ? "TRUE" : "FALSE",
+      Math.round(Number(c.expirationDate) || 0), clean(c.name), clean(c.value)].join("\t"));
+  }
+  return lines.join("\n") + "\n";
+}
+
 class InfoCache {
   constructor(dir) {
     this.dir = dir;
     this.entries = new Map();
     this.pending = new Map();
+    // Page cookies the extension sent, kept in memory only, for when stream links need refreshing.
+    this.cookies = new Map();
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  async get(url, { fresh = false } = {}) {
+  async get(url, { fresh = false, cookies } = {}) {
     for (const [key, e] of this.entries) if (Date.now() - e.at >= TTL) this.entries.delete(key);
+    if (Array.isArray(cookies) && cookies.length && !isYoutubeUrl(url)) this.cookies.set(url, cookies);
     const hit = this.entries.get(url);
     if (!fresh && hit && Date.now() - hit.at < TTL) return hit;
     if (this.pending.has(url)) return this.pending.get(url);
-    const job = this.extract(url).then((info) => {
+    const job = this.extract(url, this.cookies.get(url)).then((info) => {
       const file = path.join(this.dir, `${info.id}.info.json`);
       fs.writeFileSync(file, JSON.stringify(info));
       const entry = { at: Date.now(), info, file };
@@ -168,13 +198,25 @@ class InfoCache {
     }
   }
 
-  extract(url) {
+  extract(url, cookies) {
     const bin = tools.find("yt-dlp");
     if (!bin) return Promise.reject(new Error("yt-dlp was not found. Open Settings in Downy and click Install tools."));
-    const args = ["-J", "--no-playlist", "--no-warnings", ...tools.jsRuntimeArgs(), url];
+    // Without the generic extractor, a site yt-dlp has no extractor for fails at once
+    // with "Unsupported URL" instead of yt-dlp searching the page for any video.
+    const args = ["-J", "--no-playlist", "--no-warnings", "--ies", "default,-generic", ...tools.jsRuntimeArgs()];
+    // Sites like Reddit and Vimeo only answer signed-in users. The file is deleted once yt-dlp is done.
+    let jar = null;
+    if (cookies?.length) {
+      jar = path.join(this.dir, `cookies-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+      fs.writeFileSync(jar, cookieFile(cookies), { mode: 0o600 });
+      args.push("--cookies", jar);
+    }
+    args.push(url);
+    const done = () => jar && fs.rm(jar, { force: true }, () => {});
     return new Promise((resolve, reject) => {
       execFile(bin, args, { windowsHide: true, maxBuffer: 256 * 1024 * 1024, timeout: 120000, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } },
         (err, stdout, stderr) => {
+          done();
           if (err) {
             const lines = String(stderr || err.message).trim().split(/\r?\n/);
             return reject(new Error(lines[lines.length - 1] || "yt-dlp failed"));
@@ -189,4 +231,4 @@ class InfoCache {
   }
 }
 
-module.exports = { isYoutubeUrl, humanSize, buildOptions, publicOptions, InfoCache, TTL };
+module.exports = { isYoutubeUrl, isHttpUrl, humanSize, buildOptions, publicOptions, InfoCache, TTL };
