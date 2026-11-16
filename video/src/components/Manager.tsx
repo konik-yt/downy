@@ -200,7 +200,56 @@ const ActiveRow: React.FC<{ r: RowState }> = ({ r }) => {
   );
 };
 
-export const ManagerWindow: React.FC<{ row: RowState; running: number; finished: number }> = ({ row, running, finished }) => (
+const Hero: React.FC = () => (
+  <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", paddingBottom: 80, boxSizing: "border-box" }}>
+    <div style={{ textAlign: "center", marginBottom: 26 }}>
+      <div style={{ fontSize: 34, fontWeight: 500, letterSpacing: "-0.01em" }}>What should we download?</div>
+      <div style={{ marginTop: 10, color: C.muted, fontSize: 15 }}>Paste any link, or download in Chrome as usual and Downy takes over</div>
+    </div>
+    <Composer />
+  </div>
+);
+
+const Composer: React.FC = () => (
+  <div
+    style={{
+      padding: "14px 14px 12px 18px",
+      borderRadius: 22,
+      background: `${C.glassTint}, ${C.glass}`,
+      boxShadow: C.glassShadow,
+    }}
+  >
+    <div style={{ fontSize: 16, color: "#8f8cab", padding: "4px 0 10px" }}>Paste a YouTube link or a file link</div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 8, color: C.faint, fontSize: 13 }}>
+        <Icon name="link" size={15} />
+        YouTube files are sorted by format, other files go into Downloads
+      </span>
+      <div
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: "50%",
+          display: "grid",
+          placeItems: "center",
+          background: "radial-gradient(100% 60% at 50% 0%, #ffffff1f, #0000 70%), linear-gradient(150deg, #8a7fe880, #6f8cff26 60%, #4a3cc426), #0d0b26",
+          boxShadow: "inset 0 1px 0 #ffffff26, inset 0 -8px 14px -10px #a99fffcc, 0 0 0 1px #b4aaff33",
+        }}
+      >
+        <Icon name="arrowUp" size={16} />
+      </div>
+    </div>
+  </div>
+);
+
+// `empty` draws the first-run window with no downloads yet. `children` go over the whole window, like a dialog.
+export const ManagerWindow: React.FC<{ row?: RowState; running?: number; finished?: number; empty?: boolean; children?: React.ReactNode }> = ({
+  row,
+  running = 0,
+  finished = 0,
+  empty,
+  children,
+}) => (
   <div
     style={{
       position: "relative",
@@ -263,20 +312,26 @@ export const ManagerWindow: React.FC<{ row: RowState; running: number; finished:
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <NavItem icon="layers" label="All downloads" count={3} current />
+          <NavItem icon="layers" label="All downloads" count={empty ? undefined : 3} current />
           <NavItem icon="activity" label="Running" count={running || undefined} live />
           <NavItem icon="pauseCircle" label="Paused" />
           <NavItem icon="check" label="Finished" count={finished} />
           <NavItem icon="alert" label="Failed" />
         </div>
         <div style={{ color: C.faint, fontSize: 12, fontWeight: 500, padding: "18px 10px 6px" }}>Folders</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <NavItem icon="video" label="YouTube" count={finished - 1} />
-          <NavItem icon="folder" label="1080p" count={finished - 2 || undefined} sub />
-          <NavItem icon="music" label="MP3" count={1} sub />
-          <NavItem icon="video" label="Videos" />
-          <NavItem icon="folder" label="Downloads" count={1} />
-        </div>
+        {empty ? (
+          <div style={{ color: C.faint, fontSize: 12.5, padding: "4px 10px", lineHeight: 1.5 }}>
+            Finished files show up here. Files from Chrome go in Downloads, videos are sorted by format.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <NavItem icon="video" label="YouTube" count={finished - 1} />
+            <NavItem icon="folder" label="1080p" count={finished - 2 || undefined} sub />
+            <NavItem icon="music" label="MP3" count={1} sub />
+            <NavItem icon="video" label="Videos" />
+            <NavItem icon="folder" label="Downloads" count={1} />
+          </div>
+        )}
         <div style={{ marginTop: "auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 12, border: `1px solid ${C.line}`, background: "#03030a8c", color: C.muted }}>
             <Icon name="folder" size={16} />
@@ -289,35 +344,11 @@ export const ManagerWindow: React.FC<{ row: RowState; running: number; finished:
       </div>
 
       <div style={{ flex: 1, minWidth: 0, padding: "4px 28px 28px" }}>
-        <div
-          style={{
-            padding: "14px 14px 12px 18px",
-            borderRadius: 22,
-            background: `${C.glassTint}, ${C.glass}`,
-            boxShadow: C.glassShadow,
-          }}
-        >
-          <div style={{ fontSize: 16, color: "#8f8cab", padding: "4px 0 10px" }}>Paste a YouTube link or a file link</div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 8, color: C.faint, fontSize: 13 }}>
-              <Icon name="link" size={15} />
-              YouTube files are sorted by format, other files go into Downloads
-            </span>
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: "50%",
-                display: "grid",
-                placeItems: "center",
-                background: "radial-gradient(100% 60% at 50% 0%, #ffffff1f, #0000 70%), linear-gradient(150deg, #8a7fe880, #6f8cff26 60%, #4a3cc426), #0d0b26",
-                boxShadow: "inset 0 1px 0 #ffffff26, inset 0 -8px 14px -10px #a99fffcc, 0 0 0 1px #b4aaff33",
-              }}
-            >
-              <Icon name="arrowUp" size={16} />
-            </div>
-          </div>
-        </div>
+        {empty || !row ? (
+          <Hero />
+        ) : (
+          <>
+        <Composer />
 
         <div style={{ marginTop: 22 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "0 4px 10px" }}>
@@ -332,7 +363,10 @@ export const ManagerWindow: React.FC<{ row: RowState; running: number; finished:
             </div>
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
+    {children}
   </div>
 );

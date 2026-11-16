@@ -257,6 +257,34 @@ function shimmer(name, len = 0.8) {
   write(name, b, 0.55);
 }
 
+// A switch flipping on: a small low click, then a brighter one.
+function toggle(name) {
+  const b = buffer(0.2);
+  [[0, 1800, 0.7], [0.028, 3400, 1]].forEach(([t0, fc, amp]) => {
+    const bp = bandpass(4);
+    const start = Math.round(t0 * SR);
+    for (let i = 0; i < SR * 0.03; i++) {
+      const t = i / SR;
+      add(b, start + i, (bp(noise(), fc) * 2.4 * Math.exp(-t / 0.002) + Math.sin(TAU * fc * 0.5 * t) * Math.exp(-t / 0.006) * 0.4) * amp);
+    }
+  });
+  applyReverb(b, [0.6, 0.3, 0.1]);
+  write(name, b, 0.7);
+}
+
+// A soft keyboard key: a muffled thock with a little top.
+function key(name) {
+  const b = buffer(0.12);
+  const lp = lowpass(1400);
+  const bp = bandpass(2);
+  for (let i = 0; i < SR * 0.08; i++) {
+    const t = i / SR;
+    const v = lp(noise()) * 3 * Math.exp(-t / 0.012) + bp(noise(), 4200) * Math.exp(-t / 0.0015) * 0.8 + Math.sin(TAU * 130 * t) * Math.exp(-t / 0.02) * 0.5;
+    add(b, i, v);
+  }
+  write(name, b, 0.75);
+}
+
 click("click");
 click("click-soft", { tone: 0.8 });
 tick("tick", 3800);
@@ -276,7 +304,7 @@ shimmer("shimmer");
 // ---------------------------------------------------------------- music
 
 // 96 BPM, one chord per bar, in C major. Soft pad, a plucked arpeggio, light drums.
-function music(seconds) {
+function music(name, seconds, totalBars) {
   const beat = 60 / 96;
   const bar = beat * 4;
   const b = buffer(seconds);
@@ -288,7 +316,6 @@ function music(seconds) {
     { bass: 43, pad: [55, 59, 62, 64] }, // G6
   ];
   const bars = Math.ceil(seconds / bar);
-  const totalBars = 15; // the video is 15 bars long
   const chordAt = (n) => (n >= totalBars - 2 ? (n === totalBars - 2 ? chords[0] : { bass: 36, pad: [55, 59, 62, 64, 67] }) : chords[n % 4]);
 
   // pad
@@ -391,7 +418,12 @@ function music(seconds) {
     b[0][i] *= i / (SR * 1.5);
     b[1][i] *= i / (SR * 1.5);
   }
-  write("music", b, 0.8);
+  write(name, b, 0.8);
 }
 
-music(40);
+music("music", 40, 15); // the product video is 15 bars long
+music("music-setup", 60, 23); // the setup video is 23 bars long
+
+// Made last, so the files above come out the same as before these were added.
+toggle("toggle");
+key("key");
