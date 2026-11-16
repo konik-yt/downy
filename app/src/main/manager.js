@@ -529,7 +529,9 @@ class Manager extends EventEmitter {
       args = ["-i", inputs[0], "-vn", "-c:a", "libmp3lame", "-q:a", "0", ...meta, out];
     } else {
       j.status = "converting";
-      args = ["-i", inputs[0], "-vn", "-c:a", "copy", ...meta, out];
+      // Without m4a audio the picker falls back to webm (opus), which an .m4a file cannot hold.
+      const codec = j.streams[0].ext === "m4a" ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"];
+      args = ["-i", inputs[0], "-vn", ...codec, ...meta, out];
     }
     j.postProgress = 0;
     this.changed();
@@ -608,6 +610,7 @@ class Manager extends EventEmitter {
     ];
     if (j.kind === "video") args.push("--merge-output-format", "mp4");
     if (j.kind === "mp3") args.push("-x", "--audio-format", "mp3", "--audio-quality", "0");
+    if (j.kind === "audio" && j.streams?.[0]?.ext !== "m4a") args.push("-x", "--audio-format", "m4a");
     return new Promise((resolve, reject) => {
       const proc = spawn(bin, args, { windowsHide: true, env: CHILD_ENV });
       rt.proc = proc;
