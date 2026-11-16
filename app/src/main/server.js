@@ -60,10 +60,10 @@ function startServer({ manager, cache, settings, tools, actions }) {
     }
     try {
       if (req.method === "GET") {
+        // Any website can load this page, so it must not do anything (the extension uses POST /api/show).
         if (path === "/" || path === "/index.html") {
-          actions.show();
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-          return res.end("<!doctype html><meta charset=utf-8><title>Downy</title><body style='background:#000;color:#a6a3c0;font:14px system-ui;display:grid;place-items:center;height:100vh;margin:0'>Downy is open on your desktop. You can close this tab.");
+          return res.end("<!doctype html><meta charset=utf-8><title>Downy</title><body style='background:#000;color:#a6a3c0;font:14px system-ui;display:grid;place-items:center;height:100vh;margin:0'>Downy is running. You can close this tab.");
         }
         if (path === "/api/status") {
           const t = tools.status();
