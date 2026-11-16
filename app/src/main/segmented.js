@@ -46,14 +46,32 @@ function headersFor(st, range) {
   return h;
 }
 
+// Reads "attachment; filename*=UTF-8''name.zip" or 'filename="name.zip"'.
+function dispositionName(header) {
+  if (!header) return "";
+  const star = /filename\*\s*=\s*([^']*)'[^']*'([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[2].trim().replace(/^"|"$/g, ""));
+    } catch {}
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(header);
+  return plain ? (plain[2] ?? plain[1]).trim() : "";
+}
+
 async function probe(st, signal) {
   const res = await fetch(st.url, { headers: headersFor(st, "bytes=0-0"), signal });
   try {
+    const meta = {
+      filename: dispositionName(res.headers.get("content-disposition")),
+      type: (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase(),
+      finalUrl: res.url,
+    };
     if (res.status === 206) {
       const m = /\/(\d+)\s*$/.exec(res.headers.get("content-range") || "");
-      if (m) return { size: Number(m[1]), ranges: true };
+      if (m) return { ...meta, size: Number(m[1]), ranges: true };
     }
-    if (res.status === 200) return { size: Number(res.headers.get("content-length") || 0), ranges: false };
+    if (res.status === 200) return { ...meta, size: Number(res.headers.get("content-length") || 0), ranges: false };
     const err = new Error(`The server answered ${res.status}`);
     err.status = res.status;
     throw err;
@@ -232,4 +250,4 @@ function streamBytes(st) {
   return st.segments.reduce((n, s) => n + Math.max(0, Math.min(s.pos, s.end + 1) - s.start), 0);
 }
 
-module.exports = { downloadStream, streamDone, streamBytes, AbortError };
+module.exports = { downloadStream, streamDone, streamBytes, probe, AbortError };

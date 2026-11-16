@@ -86,12 +86,15 @@ if (!app.requestSingleInstanceLock()) {
   function reveal(id, select = true) {
     const j = id && manager.get(id);
     if (select && j?.filepath && fs.existsSync(j.filepath)) shell.showItemInFolder(j.filepath);
-    else openFolder(j?.folder);
+    else if (j?.filepath) openFolder(path.dirname(j.filepath));
+    else openFolder();
   }
 
+  // `folder` is a path inside the download folder, such as "Downloads" or "YouTube/1080p".
   function openFolder(folder) {
-    const s = settings.get();
-    const dir = folder && s.organize ? path.join(s.downloadDir, folder) : s.downloadDir;
+    const root = path.resolve(settings.get().downloadDir);
+    let dir = folder ? path.resolve(root, folder) : root;
+    if (dir !== root && !dir.startsWith(root + path.sep)) dir = root;
     fs.mkdirSync(dir, { recursive: true });
     shell.openPath(dir);
   }
@@ -220,6 +223,7 @@ if (!app.requestSingleInstanceLock()) {
     return { title: info.title, thumbnail: info.thumbnail, duration: info.duration, channel: info.channel || info.uploader, options: publicOptions(buildOptions(info)) };
   });
   handle("download", (url, option) => manager.add(url, option));
+  handle("add-file", (url) => manager.addFile({ url }));
   handle("pause", (id) => manager.pause(id));
   handle("resume", (id) => manager.resume(id));
   handle("pause-all", () => manager.pauseAll());

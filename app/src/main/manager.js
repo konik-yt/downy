@@ -8,7 +8,7 @@ const { spawn, execFile } = require("child_process");
 const { EventEmitter } = require("events");
 const tools = require("./tools");
 const { buildOptions } = require("./formats");
-const { downloadStream, streamDone, streamBytes, AbortError } = require("./segmented");
+const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("./segmented");
 
 const ACTIVE = new Set(["downloading", "merging", "converting"]);
 const FINISHED = new Set(["done", "error", "cancelled"]);
@@ -23,6 +23,21 @@ function safeName(name) {
     .trim()
     .replace(/[. ]+$/, "");
   return (clean || "video").slice(0, 150);
+}
+
+// Folder layout inside the download folder:
+//   Downloads\          files caught from the browser or pasted links
+//   YouTube\<format>\   YouTube files, one folder per format (MP3, M4A, 720p, 1080p ...)
+const FILES_DIR = "Downloads";
+const YOUTUBE_DIR = "YouTube";
+
+function nameFromUrl(url) {
+  try {
+    const last = new URL(url).pathname.split("/").filter(Boolean).pop() || "";
+    return decodeURIComponent(last);
+  } catch {
+    return "";
+  }
 }
 
 function uniquePath(file) {
@@ -120,6 +135,7 @@ class Manager extends EventEmitter {
     }
     return {
       id: j.id, url: j.url, title: j.title, thumbnail: j.thumbnail, label: j.label, folder: j.folder,
+      source: j.source || "youtube", dir: j.dir || j.folder, ext: j.ext || "",
       kind: j.kind, status: j.status, error: j.error, downloaded: j.downloaded, expected, progress,
       speed: j.speed || 0, eta: j.eta, filepath: j.filepath, filename: j.filepath ? path.basename(j.filepath) : "",
       created: j.created, finished: j.finished, mode: j.mode, phase: j.phase || "",
@@ -147,7 +163,10 @@ class Manager extends EventEmitter {
 
   folderCounts() {
     const counts = {};
-    for (const j of this.jobs.values()) if (j.status === "done") counts[j.folder] = (counts[j.folder] || 0) + 1;
+    for (const j of this.jobs.values()) {
+      const dir = j.dir || j.folder;
+      if (j.status === "done") counts[dir] = (counts[dir] || 0) + 1;
+    }
     return counts;
   }
 
@@ -161,13 +180,54 @@ class Manager extends EventEmitter {
     const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     const http = option.streams.every((s) => /^https?$/.test(s.protocol));
     const job = {
-      id, url, videoId: info.id, title: info.title || url, thumbnail: info.thumbnail, duration: info.duration || 0,
+      id, url, source: "youtube", videoId: info.id, title: info.title || url, thumbnail: info.thumbnail, duration: info.duration || 0,
       optionId, kind: option.kind, height: option.height || null, label: option.label, folder: option.folder,
       selector: option.streams.map((s) => s.formatId).join("+"),
       mode: http ? "segmented" : "ytdlp",
       streams: option.streams.map((s, i) => ({ ...s, path: "", segments: null, index: i })),
       expected: option.size || 0, downloaded: 0, speed: 0, eta: null,
       status: "queued", error: "", filepath: "", created: Date.now(), finished: null, infoFile: entry.file,
+    };
+    this.jobs.set(id, job);
+    this.save();
+    this.changed();
+    this.schedule();
+    return this.public(job);
+  }
+
+  // A normal file download, from the browser extension or a pasted link.
+  async addFile({ url, filename, referrer, cookies, userAgent, mime }) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error("That is not a valid link");
+    }
+    if (!/^https?:$/.test(parsed.protocol)) throw new Error("Downy can only download http and https links");
+    const headers = {
+      "User-Agent": userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Accept: "*/*",
+    };
+    if (referrer) headers.Referer = referrer;
+    if (cookies) headers.Cookie = cookies;
+    const st = { role: "file", formatId: "", ext: "", protocol: parsed.protocol.slice(0, -1), url, headers, size: 0, path: "", segments: null, index: 0 };
+
+    // Check the link before taking the download from the browser, so a link that
+    // only works inside the browser can go back to it.
+    const info = await probe(st, AbortSignal.timeout(20000));
+    const name = safeName(filename || info.filename || nameFromUrl(info.finalUrl) || nameFromUrl(url) || "download");
+    const wantsPage = /html/.test(mime || "") || /\.html?$/i.test(name);
+    if (info.type === "text/html" && !wantsPage) throw new Error("This link opens a web page, not a file");
+    st.size = info.size;
+    st.ranges = info.ranges;
+    st.ext = path.extname(name).slice(1).toLowerCase();
+
+    const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const job = {
+      id, url, source: "web", title: name, filename: name, thumbnail: null, duration: 0,
+      kind: "file", ext: st.ext, label: st.ext ? st.ext.toUpperCase() : "File", folder: FILES_DIR,
+      mode: "segmented", streams: [st], expected: st.size || 0, downloaded: 0, speed: 0, eta: null,
+      status: "queued", error: "", filepath: "", created: Date.now(), finished: null, resumable: info.ranges,
     };
     this.jobs.set(id, job);
     this.save();
@@ -319,7 +379,11 @@ class Manager extends EventEmitter {
 
   targetDir(j) {
     const s = this.settings.get();
-    const dir = s.organize ? path.join(s.downloadDir, j.folder) : s.downloadDir;
+    let rel;
+    if (j.kind === "file") rel = FILES_DIR;
+    else rel = s.organize ? `${YOUTUBE_DIR}/${j.folder}` : YOUTUBE_DIR;
+    j.dir = rel;
+    const dir = path.join(s.downloadDir, ...rel.split("/"));
     fs.mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -328,12 +392,13 @@ class Manager extends EventEmitter {
     const base = safeName(j.title);
     if (j.kind === "video") return `${base} (${j.height}p).mp4`;
     if (j.kind === "mp3") return `${base}.mp3`;
+    if (j.kind === "file") return safeName(j.filename);
     return `${base}.m4a`;
   }
 
   async run(j, rt) {
     try {
-      if (!tools.find("ffmpeg")) throw new Error("ffmpeg was not found. Install it with: winget install Gyan.FFmpeg");
+      if (j.kind !== "file" && !tools.find("ffmpeg")) throw new Error("ffmpeg was not found. Install it with: winget install Gyan.FFmpeg");
       if (j.mode === "ytdlp") await this.runYtdlp(j, rt);
       else await this.runSegmented(j, rt);
       if (j.mode === "segmented") await this.postProcess(j, rt);
@@ -367,6 +432,9 @@ class Manager extends EventEmitter {
   }
 
   async refreshUrls(j) {
+    if (j.kind === "file") {
+      throw Object.assign(new Error("The download link stopped working. Start the download again from the website."), { retry: false });
+    }
     const entry = await this.cache.get(j.url, { fresh: true });
     j.infoFile = entry.file;
     for (const st of j.streams) {
@@ -381,10 +449,10 @@ class Manager extends EventEmitter {
   async runSegmented(j, rt) {
     const parts = this.partsDir();
     // Links from YouTube expire after a few hours, so a download resumed later needs fresh ones.
-    if (j.streams.some((st) => !streamDone(st) && linkExpired(st.url))) await this.refreshUrls(j);
+    if (j.kind !== "file" && j.streams.some((st) => !streamDone(st) && linkExpired(st.url))) await this.refreshUrls(j);
     for (const st of j.streams) {
       if (streamDone(st) && st.path && fs.existsSync(st.path)) continue;
-      if (!st.path) st.path = path.join(parts, `${j.id}.${st.role}.${st.ext}`);
+      if (!st.path) st.path = path.join(parts, `${j.id}.${st.role}.${st.ext || "bin"}`);
       if (st.segments && !fs.existsSync(st.path)) st.segments = null; // part file was deleted
       await downloadStream(st, {
         connections: this.settings.get().connections,
@@ -400,6 +468,16 @@ class Manager extends EventEmitter {
 
   async postProcess(j, rt) {
     const out = uniquePath(path.join(this.targetDir(j), this.targetName(j)));
+    if (j.kind === "file") {
+      const from = j.streams[0].path;
+      try {
+        fs.renameSync(from, out);
+      } catch {
+        fs.copyFileSync(from, out); // the download folder may be on another drive
+      }
+      j.filepath = out;
+      return;
+    }
     const inputs = j.streams.map((s) => s.path);
     const meta = ["-metadata", `title=${j.title}`, "-metadata", `comment=${j.url}`];
     let args;
