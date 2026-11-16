@@ -635,6 +635,7 @@ class Manager extends EventEmitter {
   cleanup(j) {
     for (const st of j.streams || []) {
       if (st.path && path.basename(path.dirname(st.path)) === ".downy-parts") removeQuietly(st.path);
+      delete st.headers; // they can hold the browser's cookies and are not needed any more
     }
     if (j.mode !== "ytdlp") return;
     // yt-dlp names its temp files after the output name, so keep those of other unfinished jobs.
