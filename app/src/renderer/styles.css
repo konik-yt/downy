@@ -165,6 +165,8 @@ button { cursor: pointer; }
 /* ----------------------------------------------------------------- hero */
 
 .hero { position: relative; text-align: center; margin-top: auto; padding-top: 24px; }
+.main:not(.has-list) .composer { margin-bottom: auto; }
+.main:not(.has-list)::after { content: ""; flex: 0 0 12vh; }
 .hero::before {
   /* the dark pool T3 puts behind its wordmark */
   content: ""; position: absolute; left: 50%; top: -10%; width: min(60vw, 760px); height: 130%;
@@ -323,7 +325,7 @@ button { cursor: pointer; }
   position: relative;
   height: 12px;
   border-radius: 3px;
-  background: #0b0a24;
+  background: #1d1a4a;
   overflow: hidden;
 }
 .segbar::after {
@@ -332,7 +334,7 @@ button { cursor: pointer; }
   background-size: 3px 3px;
   background-position: right bottom;
 }
-.seg { position: absolute; top: 0; bottom: 0; background: #1b1846; }
+.seg { position: absolute; top: 0; bottom: 0; background: #262260; }
 .seg + .seg { border-left: 2px solid #000; }
 .seg > b { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #6f6cf0, #8a7fe8); transition: width .45s linear; }
 .seg.live > b { background: linear-gradient(90deg, #6f6cf0, #a99fff); box-shadow: 2px 0 0 #e6e2ff; }

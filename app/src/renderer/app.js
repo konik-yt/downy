@@ -135,10 +135,14 @@ function renderSidebar() {
 
 // ------------------------------------------------------------------- list
 
+// Unfinished downloads stay on top, newest first within each group.
+const rank = (d) => (d.status === "downloading" || d.status === "merging" || d.status === "converting" ? 0 : d.status === "queued" ? 1 : d.status === "paused" ? 2 : 3);
+
 function visible() {
-  if (state.folder) return state.downloads.filter((d) => d.status === "done" && d.folder === state.folder);
-  const f = FILTERS.find((x) => x.id === state.filter);
-  return state.downloads.filter(f.test);
+  let items;
+  if (state.folder) items = state.downloads.filter((d) => d.status === "done" && d.folder === state.folder);
+  else items = state.downloads.filter(FILTERS.find((x) => x.id === state.filter).test);
+  return items.sort((a, b) => rank(a) - rank(b) || b.created - a.created);
 }
 
 function renderListHead(items) {
@@ -249,7 +253,7 @@ function statusLine(d) {
   const pct = Math.floor(d.progress * 100);
   switch (d.status) {
     case "queued": return ["loader", "Waiting for a free slot"];
-    case "downloading": return ["arrowUp", d.expected ? `${size(d.downloaded)} of ${size(d.expected)}` : `${size(d.downloaded)} so far`];
+    case "downloading": return ["arrowDown", d.expected ? `${size(d.downloaded)} of ${size(d.expected)}` : `${size(d.downloaded)} so far`];
     case "paused": return ["pause", `Paused at ${pct}%`];
     case "merging": return ["layers", `Joining video and audio ${Math.round(d.postProgress * 100)}%`];
     case "converting": return ["music", d.kind === "mp3" ? `Converting to MP3 ${Math.round(d.postProgress * 100)}%` : "Saving M4A file"];
