@@ -150,7 +150,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     manager.on("finished", (d) => {
       if (!settings.get().notify || !Notification.isSupported()) return;
-      const n = new Notification({ title: "Download saved", body: `${d.title}\nSaved to ${d.folder}`, icon: path.join(ASSETS, "icon.png") });
+      const n = new Notification({ title: "Download saved", body: `${d.title}\nSaved to ${(d.dir || d.folder).replace(/\//g, " / ")}`, icon: path.join(ASSETS, "icon.png") });
       n.on("click", () => reveal(d.id));
       n.show();
     });
