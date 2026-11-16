@@ -12,6 +12,7 @@ const DEFAULTS = {
   closeToTray: true,
   openAtLogin: false,
   notify: true,
+  confirm: true, // show the small confirm window before a download from Chrome starts
   onboarded: false, // the first run asks where to save downloads
   extensionSetup: false, // the Chrome extension step was shown once (also to people updating from 2.0)
 };

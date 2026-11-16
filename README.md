@@ -11,6 +11,7 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
 - Runs several downloads at the same time (3 by default) and queues the rest.
 - Shows the button over videos on any site yt-dlp supports, such as Vimeo, Reddit, X, Dailymotion or Streamable, when the pointer is over the video. Embedded players get it too. On a site yt-dlp doesn't know, no button shows: Downy asks yt-dlp about the page once, with its catch-all "generic" extractor turned off, and that answer comes back in about a second. The extension passes the site's cookies to yt-dlp, so videos that need a sign-in work. YouTube never gets cookies, because yt-dlp warns that they can get an account flagged.
 - Takes over normal Chrome downloads of 1 MB or more, with the page's cookies and referrer, so signed-in downloads work. Chrome keeps the download when Downy is closed or the link only works inside the browser. The extension popup has a switch to turn this off. You can also paste any file link into Downy.
+- Asks before each download from Chrome in a small window near the top of the screen. After you pick a quality in the menu on the page, or when Chrome hands over a file, the window shows the file name, the folder and, for a video, the format, and you can change all three. Enter starts the download and Esc cancels it. Turn it off in Settings, Ask before each download.
 - Sorts finished files inside the download folder you choose:
 
   ```
@@ -30,6 +31,8 @@ A download manager in the style of IDM. A Chrome extension puts a "Download this
   - `src/main/manager.js` is the queue, pause and resume, saving state, and the ffmpeg merge or MP3 conversion.
   - `src/renderer/` is the window. The background is the Nyx pixel sky from T3 Code.
   - `src/main/updater.js` checks GitHub releases and installs updates with electron-updater.
+  - `src/main/prompt.js` and `src/renderer/prompt.html` are the small window that asks before a download starts.
+  - `src/main/installer.js` installs missing tools with winget.
   - `src/main/extension.js` copies the bundled extension into Downy's data folder and tracks whether Chrome has loaded it.
 - `extension/` is the Chrome extension. The installer bundles it.
   - `overlay.js` is the button and the quality menu.

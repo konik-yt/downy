@@ -205,7 +205,34 @@ class Manager extends EventEmitter {
 
   // ----------------------------------------------------------------- control
 
-  async add(url, optionId) {
+  // A download is built as a draft first, so the confirm window can show its
+  // default folder and name, then added with commit() once the user agrees.
+  async add(url, optionId, custom) {
+    return this.commit(await this.draftVideo(url, optionId), custom);
+  }
+
+  async addFile(spec, custom) {
+    return this.commit(await this.draftFile(spec), custom);
+  }
+
+  // custom: { dir, name } from the confirm window. dir is an absolute folder; name has no folder in it.
+  commit(job, custom = {}) {
+    if (custom.dir && path.isAbsolute(String(custom.dir))) job.customDir = path.resolve(String(custom.dir));
+    if (custom.name && cleanName(custom.name)) job.customName = cleanName(custom.name);
+    if (job.customName && job.kind === "file") job.title = job.filename = this.targetName(job);
+    this.jobs.set(job.id, job);
+    this.save();
+    this.changed();
+    this.schedule();
+    return this.public(job);
+  }
+
+  // Where a draft would be saved, without creating anything.
+  target(job) {
+    return { dir: this.dirFor(job).abs, name: this.targetName(job) };
+  }
+
+  async draftVideo(url, optionId) {
     const entry = await this.cache.get(url);
     const option = buildOptions(entry.info).find((o) => o.id === optionId);
     if (!option) throw new Error("That format is not available for this video");
@@ -221,15 +248,11 @@ class Manager extends EventEmitter {
       expected: option.size || 0, downloaded: 0, speed: 0, eta: null,
       status: "queued", error: "", filepath: "", created: Date.now(), finished: null, infoFile: entry.file,
     };
-    this.jobs.set(id, job);
-    this.save();
-    this.changed();
-    this.schedule();
-    return this.public(job);
+    return job;
   }
 
   // A normal file download, from the browser extension or a pasted link.
-  async addFile({ url, filename, referrer, cookies, userAgent, mime }) {
+  async draftFile({ url, filename, referrer, cookies, userAgent, mime }) {
     let parsed;
     try {
       parsed = new URL(url);
@@ -262,11 +285,7 @@ class Manager extends EventEmitter {
       mode: "segmented", streams: [st], expected: st.size || 0, downloaded: 0, speed: 0, eta: null,
       status: "queued", error: "", filepath: "", created: Date.now(), finished: null, resumable: info.ranges,
     };
-    this.jobs.set(id, job);
-    this.save();
-    this.changed();
-    this.schedule();
-    return this.public(job);
+    return job;
   }
 
   pause(id) {
@@ -472,21 +491,45 @@ class Manager extends EventEmitter {
     }
   }
 
-  targetDir(j) {
+  // rel is the folder inside the download folder, like "YouTube/1080p", or "Other"
+  // for a folder the user picked outside it.
+  dirFor(j) {
     const s = this.settings.get();
+    if (j.customDir) {
+      const rel = path.relative(path.resolve(s.downloadDir), j.customDir);
+      const inside = rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+      return { abs: j.customDir, rel: inside ? rel.split(path.sep).join("/") : "Other" };
+    }
     let rel;
     if (j.kind === "file") rel = FILES_DIR;
     else {
       const root = j.source === "video" ? VIDEOS_DIR : YOUTUBE_DIR;
       rel = s.organize ? `${root}/${j.folder}` : root;
     }
+    return { abs: path.join(s.downloadDir, ...rel.split("/")), rel };
+  }
+
+  targetDir(j) {
+    const { abs, rel } = this.dirFor(j);
     j.dir = rel;
-    const dir = path.join(s.downloadDir, ...rel.split("/"));
-    fs.mkdirSync(dir, { recursive: true });
-    return dir;
+    fs.mkdirSync(abs, { recursive: true });
+    return abs;
+  }
+
+  // The extension that goes with a download's format.
+  extFor(j) {
+    return j.kind === "video" ? "mp4" : j.kind === "mp3" ? "mp3" : j.kind === "file" ? j.ext || "" : "m4a";
   }
 
   targetName(j) {
+    if (j.customName) {
+      const ext = this.extFor(j);
+      if (j.kind === "file") {
+        const name = safeFileName(j.customName);
+        return ext && !path.extname(name) ? `${name}.${ext}` : name;
+      }
+      return `${this.ytdlpBase(j)}.${ext}`;
+    }
     const base = safeName(j.title);
     if (j.kind === "video") return j.height ? `${base} (${j.height}p).mp4` : `${base}.mp4`;
     if (j.kind === "mp3") return `${base}.mp3`;
@@ -722,6 +765,8 @@ class Manager extends EventEmitter {
   }
 
   ytdlpBase(j) {
+    // A name typed with the extension (like "clip.mp4") must not end up as "clip.mp4.mp4".
+    if (j.customName) return safeName(j.customName.replace(new RegExp(`\\.${this.extFor(j)}$`, "i"), ""));
     return safeName(j.title) + (j.kind === "video" && j.height ? ` (${j.height}p)` : "");
   }
 

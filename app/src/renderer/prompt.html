@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'">
+<title>Download with Downy</title>
+<link rel="stylesheet" href="../../node_modules/@fontsource-variable/inter/index.css">
+<link rel="stylesheet" href="prompt.css">
+</head>
+<body>
+<form class="card" id="card" autocomplete="off">
+  <header class="head">
+    <div class="thumb" id="thumbBox"><img id="thumb" alt=""><span class="thumb-icon" data-icon="file"></span></div>
+    <div class="meta">
+      <div class="title" id="title"></div>
+      <div class="sub" id="sub"></div>
+    </div>
+    <button type="button" class="x" id="close" aria-label="Cancel" title="Cancel" data-icon="x"></button>
+  </header>
+
+  <div class="rows">
+    <label class="row" for="name">
+      <span class="k">Name</span>
+      <span class="box name">
+        <input id="name" spellcheck="false">
+        <span class="ext" id="ext"></span>
+      </span>
+    </label>
+
+    <label class="row" for="format" id="formatRow" hidden>
+      <span class="k">Format</span>
+      <span class="box select">
+        <select id="format"></select>
+        <span class="chev" data-icon="chevron"></span>
+      </span>
+    </label>
+
+    <div class="row">
+      <span class="k">Save to</span>
+      <span class="box path" id="dir" title=""></span>
+      <button type="button" class="btn" id="change">Change</button>
+    </div>
+  </div>
+
+  <p class="error" id="error" role="alert" hidden></p>
+
+  <footer class="foot">
+    <span class="hint">Enter to download, Esc to cancel</span>
+    <button type="button" class="btn" id="cancel">Cancel</button>
+    <button type="submit" class="btn primary" id="go" data-icon="arrowDown"><span>Download</span></button>
+  </footer>
+</form>
+
+<script src="icons.js"></script>
+<script src="prompt.js"></script>
+</body>
+</html>

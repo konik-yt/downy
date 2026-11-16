@@ -29,6 +29,7 @@ async function handle(msg) {
     case "formats": return call("/api/formats", { url: msg.url, cookies: await pageCookies(msg.url) });
     case "download": return call("/api/download", { url: msg.url, option: msg.option });
     case "list": return call("/api/downloads");
+    case "prompt": return call("/api/prompt", { id: msg.id });
     case "cancel": return call("/api/cancel", { id: msg.id });
     case "pause": return call("/api/pause", { id: msg.id });
     case "resume": return call("/api/resume", { id: msg.id });

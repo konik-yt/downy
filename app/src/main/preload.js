@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld("downy", {
   restartToUpdate: call("update:restart"),
   openReleasePage: call("update:open-page"),
   onUpdate: on("update"),
+  // The confirm window (prompt.html).
+  promptGet: call("prompt:get"),
+  promptChooseFolder: call("prompt:choose-folder"),
+  promptSubmit: call("prompt:submit"),
+  promptCancel: call("prompt:cancel"),
+  promptSize: (h) => ipcRenderer.send("prompt:size", h),
   onExtension: on("extension"),
   onDownloads: on("downloads"),
   onSettings: on("settings"),
