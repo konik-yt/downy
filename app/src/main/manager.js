@@ -16,6 +16,30 @@ const PROGRESS_RE = /^DOWNY\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$/
 
 const CHILD_ENV = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" };
 
+// Writes the Mark of the Web that browsers put on downloads, so Windows treats the
+// file as coming from the internet: SmartScreen checks programs, and Office opens
+// documents in Protected View. Drives without NTFS streams (FAT32, exFAT) can't hold it.
+function markFromInternet(file, url, referrer) {
+  if (process.platform !== "win32" || !file) return;
+  const clean = (u) => {
+    try {
+      const x = new URL(u);
+      if (!/^https?:$/.test(x.protocol)) return "";
+      x.username = "";
+      x.password = "";
+      return x.href; // the URL parser already dropped any line breaks
+    } catch {
+      return "";
+    }
+  };
+  const lines = ["[ZoneTransfer]", "ZoneId=3"];
+  if (clean(referrer)) lines.push(`ReferrerUrl=${clean(referrer)}`);
+  if (clean(url)) lines.push(`HostUrl=${clean(url)}`);
+  try {
+    fs.writeFileSync(`${file}:Zone.Identifier`, lines.join("\r\n") + "\r\n");
+  } catch {}
+}
+
 function cleanName(name) {
   return String(name || "")
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
@@ -543,6 +567,7 @@ class Manager extends EventEmitter {
       if (j.mode === "ytdlp") await this.runYtdlp(j, rt);
       else await this.runSegmented(j, rt);
       if (j.mode === "segmented") await this.postProcess(j, rt);
+      markFromInternet(j.filepath, j.url, j.streams?.[0]?.headers?.Referer);
       j.status = "done";
       j.downloaded = j.expected = Math.max(j.expected, j.downloaded);
       j.finished = Date.now();
