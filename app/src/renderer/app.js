@@ -332,7 +332,9 @@ function updateRow(r, d) {
     if (d.stream && d.stream.count > 1) foot.push(el("span", "", d.stream.role === "audio" ? `Audio, part ${d.stream.index} of ${d.stream.count}` : `Video, part ${d.stream.index} of ${d.stream.count}`));
     foot.push(el("span", "", `${Math.floor(d.progress * 100)}%`));
   } else if (d.status === "paused") {
-    foot.push(el("span", "", "Resume continues from here, even after a restart"));
+    foot.push(el("span", "", d.kind === "file" && d.resumable === false
+      ? "Resume downloads the file again from the start"
+      : "Resume continues from here, even after a restart"));
   } else if (d.status === "done" && d.filename) {
     foot.push(el("span", "", d.filename));
   }
