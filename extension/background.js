@@ -1,5 +1,5 @@
-// Relays requests from the YouTube page to the Downy helper on this PC.
-// Requests go from here (not the page) so the helper sees the extension origin.
+// Relays requests from the YouTube page to the Downy desktop app on this PC.
+// Requests go from here (not the page) so the app sees the extension origin.
 const BASE = "http://127.0.0.1:9614";
 
 async function call(path, body) {
@@ -11,12 +11,12 @@ async function call(path, body) {
       body: JSON.stringify(body),
     });
   } catch {
-    const err = new Error("The Downy helper is not running. Double click start-downy.bat to start it.");
+    const err = new Error("Downy is not running. Open the Downy app from the Start menu, then try again.");
     err.offline = true;
     throw err;
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Helper error ${res.status}`);
+  if (!res.ok) throw new Error(data.error || `Downy error ${res.status}`);
   return data;
 }
 
@@ -27,8 +27,10 @@ async function handle(msg) {
     case "download": return call("/api/download", { url: msg.url, option: msg.option });
     case "list": return call("/api/downloads");
     case "cancel": return call("/api/cancel", { id: msg.id });
+    case "pause": return call("/api/pause", { id: msg.id });
+    case "resume": return call("/api/resume", { id: msg.id });
     case "open": return call("/api/open", { id: msg.id, select: msg.select !== false });
-    case "manager": return chrome.tabs.create({ url: BASE + "/" }).then(() => ({ ok: true }));
+    case "manager": return call("/api/show", { id: msg.id || "" });
   }
   throw new Error("Unknown request");
 }
