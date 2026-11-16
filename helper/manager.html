@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Downy Downloads</title>
+<style>
+  :root {
+    --bg: #f4f5f2; --panel: #ffffff; --ink: #1b1f1c; --muted: #66706a; --line: #e1e4df;
+    --brand: #059669; --brand-ink: #ffffff; --brand-soft: #e3f4ec; --bad: #c2410c; --track: #e8ebe6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121513; --panel: #1a1e1b; --ink: #e8ece9; --muted: #9aa59e; --line: #2a302c;
+      --brand: #10b981; --brand-ink: #04130c; --brand-soft: #173326; --bad: #fb923c; --track: #2a302c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 18px 24px;
+    border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+  .logo { width: 30px; height: 30px; border-radius: 8px; background: var(--brand); color: var(--brand-ink);
+    display: grid; place-items: center; font-weight: 700; }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .dir { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+  button { font: inherit; cursor: pointer; border-radius: 7px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); padding: 6px 12px; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); font-weight: 600; }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 24px 60px; }
+  .add { display: flex; gap: 8px; margin-bottom: 8px; }
+  .add input { flex: 1; min-width: 0; font: inherit; padding: 8px 12px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  .add input:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
+  .picker { display: none; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+  .picker.show { display: flex; }
+  .picker button { font-size: 13px; }
+  .picker small { color: var(--muted); margin-left: 6px; }
+  .msg { color: var(--muted); font-size: 13px; min-height: 20px; margin: 4px 0 14px; }
+  .msg.bad { color: var(--bad); }
+  .bar { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 8px; }
+  .bar h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; font-weight: 600; }
+  ul { list-style: none; margin: 0; padding: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  li { display: grid; grid-template-columns: 96px 1fr auto; gap: 14px; align-items: center; padding: 12px 14px; }
+  li + li { border-top: 1px solid var(--line); }
+  .thumb { width: 96px; height: 54px; border-radius: 6px; object-fit: cover; background: var(--track); }
+  .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { color: var(--muted); font-size: 12.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .meta.bad { color: var(--bad); }
+  .track { height: 5px; border-radius: 3px; background: var(--track); margin-top: 7px; overflow: hidden; }
+  .fill { height: 100%; background: var(--brand); width: 0; transition: width .4s ease; }
+  .fill.busy { width: 100% !important; opacity: .5; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .2; } }
+  .actions { display: flex; gap: 6px; }
+  .actions button { padding: 5px 10px; font-size: 13px; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  .offline { padding: 40px; text-align: center; color: var(--bad); }
+  @media (max-width: 640px) {
+    header, main { padding-left: 16px; padding-right: 16px; }
+    .dir { display: none; }
+    li { grid-template-columns: 1fr; }
+    .thumb { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">D</div>
+  <h1>Downy</h1>
+  <span class="dir" id="dir"></span>
+  <button id="openDir">Open folder</button>
+</header>
+<main>
+  <form class="add" id="addForm">
+    <input id="url" type="url" placeholder="Paste a YouTube link" autocomplete="off" required>
+    <button class="primary" type="submit">Get formats</button>
+  </form>
+  <div class="picker" id="picker"></div>
+  <div class="msg" id="msg"></div>
+  <div class="bar"><h2>Downloads</h2><button id="clear">Clear finished</button></div>
+  <ul id="list"><li class="empty">No downloads yet.</li></ul>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const api = (path, body) => fetch(path, body === undefined ? {} : {
+  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+}).then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
+
+function size(n) {
+  if (!n) return "";
+  const u = ["B", "KB", "MB", "GB"]; let i = 0;
+  while (n >= 1024 && i < 3) { n /= 1024; i++; }
+  return (i < 2 ? n.toFixed(0) : n.toFixed(1)) + " " + u[i];
+}
+function eta(s) {
+  if (s == null) return "";
+  s = Math.round(s); const m = Math.floor(s / 60), r = s % 60;
+  return m ? `${m}m ${r}s left` : `${r}s left`;
+}
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function meta(d) {
+  const pct = Math.round(d.progress * 100);
+  switch (d.status) {
+    case "queued": return "Starting";
+    case "downloading": return `${pct}%  ${size(d.downloaded)} of ${size(d.expected)}  ${size(d.speed)}/s  ${eta(d.eta)}`;
+    case "merging": return "Joining video and audio";
+    case "converting": return "Converting to MP3";
+    case "done": return `${d.label}  ${size(d.expected)}  ${d.filename}`;
+    case "cancelled": return "Cancelled";
+    case "error": return d.error || "Failed";
+  }
+  return d.status;
+}
+
+function render(items) {
+  const list = $("list");
+  list.replaceChildren();
+  if (!items.length) { list.append(el("li", "empty", "No downloads yet.")); return; }
+  for (const d of items) {
+    const li = el("li");
+    const img = el("img", "thumb"); img.alt = ""; if (d.thumbnail) img.src = d.thumbnail;
+    const body = el("div");
+    body.style.minWidth = "0";
+    body.append(el("div", "title", d.title), el("div", "meta" + (d.status === "error" ? " bad" : ""), meta(d)));
+    if (!["done", "error", "cancelled"].includes(d.status)) {
+      const track = el("div", "track"), fill = el("div", "fill");
+      if (d.status === "merging" || d.status === "converting" || d.status === "queued") fill.classList.add("busy");
+      fill.style.width = Math.round(d.progress * 100) + "%";
+      track.append(fill); body.append(track);
+    }
+    const actions = el("div", "actions");
+    if (d.status === "done") {
+      const open = el("button", "", "Show file");
+      open.onclick = () => api("/api/open", { id: d.id, select: true });
+      actions.append(open);
+    }
+    if (["queued", "downloading", "merging", "converting"].includes(d.status)) {
+      const cancel = el("button", "", "Cancel");
+      cancel.onclick = () => api("/api/cancel", { id: d.id }).then(refresh);
+      actions.append(cancel);
+    } else {
+      const rm = el("button", "", "Remove");
+      rm.onclick = () => api("/api/remove", { id: d.id }).then(refresh);
+      actions.append(rm);
+    }
+    li.append(img, body, actions);
+    list.append(li);
+  }
+}
+
+let timer;
+async function refresh() {
+  clearTimeout(timer);
+  try {
+    const { downloads } = await api("/api/downloads");
+    render(downloads);
+    const active = downloads.some((d) => !["done", "error", "cancelled"].includes(d.status));
+    timer = setTimeout(refresh, active ? 700 : 3000);
+  } catch {
+    $("list").replaceChildren(el("li", "offline", "The Downy helper is not running."));
+    timer = setTimeout(refresh, 3000);
+  }
+}
+
+$("addForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const url = $("url").value.trim();
+  const picker = $("picker"), msg = $("msg");
+  picker.classList.remove("show"); picker.replaceChildren();
+  msg.className = "msg"; msg.textContent = "Reading formats from YouTube";
+  try {
+    const info = await api("/api/formats", { url });
+    msg.textContent = info.title;
+    for (const o of info.options) {
+      const b = el("button", "", o.label);
+      if (o.sizeText) b.append(el("small", "", o.sizeText));
+      b.onclick = async () => {
+        await api("/api/download", { url, option: o.id });
+        picker.classList.remove("show"); msg.textContent = ""; $("url").value = "";
+        refresh();
+      };
+      picker.append(b);
+    }
+    picker.classList.add("show");
+  } catch (err) {
+    msg.className = "msg bad"; msg.textContent = err.message;
+  }
+};
+$("openDir").onclick = () => api("/api/open", { select: false });
+$("clear").onclick = () => api("/api/clear", {}).then(refresh);
+api("/api/status").then((s) => { $("dir").textContent = s.downloadDir; }).catch(() => {});
+refresh();
+</script>
+</body>
+</html>
