@@ -49,15 +49,35 @@ When any of them is missing, Downy offers to install it with winget (`yt-dlp.yt-
 
 ## Install
 
-This video shows the whole setup, click by click, in under a minute: the installer, the first start and adding the Chrome extension. The captions say what to click at each step. [Watch it with sound](docs/downy-setup.mp4).
-
-[![Downy setup, step by step](docs/downy-setup.webp)](docs/downy-setup.mp4)
-
-The same steps in writing:
+Each step has a short clip that shows what to click.
 
 1. Open the [latest release](https://github.com/konik-yt/downy/releases/latest) and download `Downy-Setup-<version>.exe`, or `Downy-<version>-portable.exe` to run it without installing. The exe is not code signed, so Windows SmartScreen may warn you. Click "More info", then "Run anyway".
-2. Start Downy. The welcome screen asks for a download folder, then walks you through adding the Chrome extension, which comes with Downy. Chrome only allows this kind of extension by hand: open `chrome://extensions`, turn on Developer mode, click "Load unpacked" and pick the folder Downy shows. The screen turns green once Chrome has loaded it.
-3. Open any YouTube video and click "Download this video".
+
+   ![Downloading the installer from GitHub and getting past SmartScreen](docs/setup/download.webp)
+
+2. Keep the install folder and click "Install". Leave "Run Downy" checked and click "Finish". The portable exe skips this step.
+
+   ![The installer](docs/setup/install.webp)
+
+3. Downy opens and asks where to save downloads. Click "Use this folder", or "Choose folder" to pick another. Next it checks for yt-dlp, ffmpeg and Deno. Click "Install" to get the missing ones with winget, then click "Next" when all three say Found.
+
+   ![Picking the download folder and installing the tools](docs/setup/first-start.webp)
+
+4. Now add the Chrome extension, which comes with Downy. Chrome only allows this kind of extension by hand. In Downy, click "Open Chrome". Downy copies `chrome://extensions` for you, so click Chrome's address bar, press Ctrl+V, then Enter. Turn on Developer mode at the top right.
+
+   ![Opening chrome://extensions and turning on Developer mode](docs/setup/chrome-extensions.webp)
+
+5. Back in Downy, click "Copy folder". In Chrome, click "Load unpacked", click the Folder box, press Ctrl+V and click "Select Folder". Downy shows up in your extensions.
+
+   ![Copying the folder and loading it with Load unpacked](docs/setup/load-unpacked.webp)
+
+6. The status in Downy turns green once Chrome has loaded the extension. Click "Done".
+
+   ![The status turns green](docs/setup/connected.webp)
+
+7. Open any YouTube video and click "Download this video".
+
+   ![The Download this video button on YouTube](docs/setup/try-it.webp)
 
 You can open the extension steps again from Settings, Chrome extension, Set up.
 
