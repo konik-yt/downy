@@ -5,18 +5,37 @@ const BASE = "http://127.0.0.1:9614";
 // Sent with every request so Downy can tell which version of the extension is connected.
 const VERSION = chrome.runtime.getManifest().version;
 
-async function call(path, body) {
+// Downy writes token.json into the folder Chrome loads this extension from, and
+// the app answers only requests that carry it. Read again after a 401, in case
+// Downy wrote a new one.
+let token = null;
+async function readToken() {
+  try {
+    const res = await fetch(chrome.runtime.getURL("token.json"), { cache: "no-store" });
+    return (await res.json()).token || "";
+  } catch {
+    return "";
+  }
+}
+
+async function call(path, body, retry = true) {
+  if (token === null) token = await readToken();
   let res;
   try {
-    res = await fetch(`${BASE}${path}?ext=${encodeURIComponent(VERSION)}`, body === undefined ? {} : {
+    const headers = { "X-Downy-Token": token };
+    res = await fetch(`${BASE}${path}?ext=${encodeURIComponent(VERSION)}`, body === undefined ? { headers } : {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   } catch {
     const err = new Error("Downy is not running. Open the Downy app from the Start menu, then try again.");
     err.offline = true;
     throw err;
+  }
+  if (res.status === 401 && retry) {
+    token = null;
+    return call(path, body, false);
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Downy error ${res.status}`);

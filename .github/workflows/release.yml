@@ -1,5 +1,6 @@
-# Builds Downy on Windows and publishes a GitHub release with the installer,
-# the portable exe and the extension zip. latest.yml and the blockmap are what
+# Builds Downy on Windows and publishes a GitHub release with the installer
+# and the portable exe. There is no extension zip: the extension only works from
+# the copy Downy writes its API token into. latest.yml and the blockmap are what
 # the updater inside Downy reads, so every release needs them. Start it from the
 # Actions tab or with `gh workflow run release.yml`.
 name: Release
@@ -92,10 +93,6 @@ jobs:
         working-directory: app
         run: npx electron-builder --win nsis portable --publish never
 
-      - name: Zip the extension
-        shell: pwsh
-        run: Compress-Archive -Path extension/* -DestinationPath "app/dist/Downy-extension-${{ steps.version.outputs.version }}.zip"
-
       - name: Commit the version
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -121,7 +118,7 @@ jobs:
             echo "2. Install the tools Downy uses: \`winget install yt-dlp.yt-dlp Gyan.FFmpeg OpenJS.NodeJS\`"
             echo "3. Start Downy. The welcome screen walks you through adding the Chrome extension, which comes with the app."
             echo
-            echo "Downy 2.2 and later update themselves: Downy downloads the new version in the background and shows Restart to update at the top right. The portable exe says when a new version is out and links here. From 2.1 or older, run the new setup exe over the old one once. Settings, history and unfinished downloads are kept. \`Downy-extension-$VERSION.zip\` is the same extension for anyone who wants it on its own."
+            echo "Downy 2.2 and later update themselves: Downy downloads the new version in the background and shows Restart to update at the top right. The portable exe says when a new version is out and links here. From 2.1 or older, run the new setup exe over the old one once. Settings, history and unfinished downloads are kept."
             echo
             echo "## Changes"
             echo
@@ -141,7 +138,6 @@ jobs:
           gh release create "v$VERSION" \
             "app/dist/Downy-Setup-$VERSION.exe" \
             "app/dist/Downy-$VERSION-portable.exe" \
-            "app/dist/Downy-extension-$VERSION.zip" \
             "app/dist/Downy-Setup-$VERSION.exe.blockmap" \
             app/dist/latest.yml \
             --target "$(git rev-parse HEAD)" \
