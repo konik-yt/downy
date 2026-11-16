@@ -67,6 +67,16 @@ button { cursor: pointer; }
   background-repeat: repeat, repeat, no-repeat;
   image-rendering: pixelated;
 }
+/* Dims the sky so text reads easily. Lists get more dimming than the empty screen. */
+.sky::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: var(--sky-dim, .4);
+  transition: opacity .4s var(--ease);
+}
+body:has(.main.has-list) { --sky-dim: .62; }
 
 /* ------------------------------------------------------------ title bar */
 
