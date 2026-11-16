@@ -137,7 +137,6 @@ jobs:
         run: |
           gh release create "v$VERSION" \
             "app/dist/Downy-Setup-$VERSION.exe" \
-\
             "app/dist/Downy-Setup-$VERSION.exe.blockmap" \
             app/dist/latest.yml \
             --target "$(git rev-parse HEAD)" \
