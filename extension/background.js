@@ -26,7 +26,7 @@ async function call(path, body) {
 async function handle(msg) {
   switch (msg.type) {
     case "status": return call("/api/status");
-    case "formats": return call("/api/formats", { url: msg.url });
+    case "formats": return call("/api/formats", { url: msg.url, cookies: await pageCookies(msg.url) });
     case "download": return call("/api/download", { url: msg.url, option: msg.option });
     case "list": return call("/api/downloads");
     case "cancel": return call("/api/cancel", { id: msg.id });
@@ -36,6 +36,28 @@ async function handle(msg) {
     case "manager": return call("/api/show", { id: msg.id || "" });
   }
   throw new Error("Unknown request");
+}
+
+// Sites like Reddit and Vimeo only show videos to signed-in users, so yt-dlp gets
+// the site's cookies. Not for YouTube, where yt-dlp warns that cookies can get an
+// account flagged. A player on a subdomain (player.vimeo.com) gets its parent site's cookies.
+async function pageCookies(url) {
+  let host;
+  try {
+    host = new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return [];
+  }
+  if (/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i.test(host)) return [];
+  const labels = host.split(".");
+  // Skip short second-level labels like the "co" in bbc.co.uk, so it never asks for all of co.uk.
+  const domain = labels.length > 2 && labels[1].length > 3 ? labels.slice(1).join(".") : host;
+  try {
+    const list = await chrome.cookies.getAll({ domain });
+    return list.map(({ domain, hostOnly, path, secure, expirationDate, name, value }) => ({ domain, hostOnly, path, secure, expirationDate, name, value }));
+  } catch {
+    return [];
+  }
 }
 
 // ------------------------------------------------------- Chrome downloads

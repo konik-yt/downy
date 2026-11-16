@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const { spawn, execFile } = require("child_process");
 const { EventEmitter } = require("events");
 const tools = require("./tools");
-const { buildOptions, TTL: INFO_TTL } = require("./formats");
+const { buildOptions, isYoutubeUrl, TTL: INFO_TTL } = require("./formats");
 const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("./segmented");
 
 const ACTIVE = new Set(["downloading", "merging", "converting"]);
@@ -39,9 +39,11 @@ function safeFileName(name) {
 // Folder layout inside the download folder:
 //   Downloads\          files caught from the browser or pasted links
 //   YouTube\<format>\   YouTube files, one folder per format (MP3, M4A, 720p, 1080p ...)
+//   Videos\<format>\    videos from every other site yt-dlp knows
 const FILES_DIR = "Downloads";
 const LEGACY_PARTS = ".downy-parts";
 const YOUTUBE_DIR = "YouTube";
+const VIDEOS_DIR = "Videos";
 
 function nameFromUrl(url) {
   try {
@@ -209,11 +211,11 @@ class Manager extends EventEmitter {
     if (!option) throw new Error("That format is not available for this video");
     const info = entry.info;
     const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-    const http = option.streams.every((s) => /^https?$/.test(s.protocol));
+    const http = option.streams.length > 0 && option.streams.every((s) => /^https?$/.test(s.protocol));
     const job = {
-      id, url, source: "youtube", videoId: info.id, title: info.title || url, thumbnail: info.thumbnail, duration: info.duration || 0,
+      id, url, source: isYoutubeUrl(url) ? "youtube" : "video", videoId: info.id, title: info.title || url, thumbnail: info.thumbnail, duration: info.duration || 0,
       optionId, kind: option.kind, height: option.height || null, label: option.label, folder: option.folder,
-      selector: option.streams.map((s) => s.formatId).join("+"),
+      selector: option.selector || option.streams.map((s) => s.formatId).join("+"),
       mode: http ? "segmented" : "ytdlp",
       streams: option.streams.map((s, i) => ({ ...s, path: "", segments: null, index: i })),
       expected: option.size || 0, downloaded: 0, speed: 0, eta: null,
@@ -474,7 +476,10 @@ class Manager extends EventEmitter {
     const s = this.settings.get();
     let rel;
     if (j.kind === "file") rel = FILES_DIR;
-    else rel = s.organize ? `${YOUTUBE_DIR}/${j.folder}` : YOUTUBE_DIR;
+    else {
+      const root = j.source === "video" ? VIDEOS_DIR : YOUTUBE_DIR;
+      rel = s.organize ? `${root}/${j.folder}` : root;
+    }
     j.dir = rel;
     const dir = path.join(s.downloadDir, ...rel.split("/"));
     fs.mkdirSync(dir, { recursive: true });
@@ -483,7 +488,7 @@ class Manager extends EventEmitter {
 
   targetName(j) {
     const base = safeName(j.title);
-    if (j.kind === "video") return `${base} (${j.height}p).mp4`;
+    if (j.kind === "video") return j.height ? `${base} (${j.height}p).mp4` : `${base}.mp4`;
     if (j.kind === "mp3") return `${base}.mp3`;
     if (j.kind === "file") return safeFileName(j.filename);
     return `${base}.m4a`;
@@ -717,7 +722,7 @@ class Manager extends EventEmitter {
   }
 
   ytdlpBase(j) {
-    return safeName(j.title) + (j.kind === "video" ? ` (${j.height}p)` : "");
+    return safeName(j.title) + (j.kind === "video" && j.height ? ` (${j.height}p)` : "");
   }
 
   // Deletes a job's temporary files. Only ever touches files in a parts folder.

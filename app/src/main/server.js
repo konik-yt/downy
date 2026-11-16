@@ -1,6 +1,6 @@
 // Local HTTP API on 127.0.0.1:9614 for the Chrome extension.
 const http = require("http");
-const { isYoutubeUrl, buildOptions, publicOptions } = require("./formats");
+const { isHttpUrl, buildOptions, publicOptions } = require("./formats");
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.DOWNY_PORT || 9614);
@@ -109,8 +109,8 @@ function startServer({ manager, cache, settings, tools, actions }) {
       switch (path) {
         case "/api/formats": {
           const url = String(data.url || "");
-          if (!isYoutubeUrl(url)) throw new Error("Only YouTube links are supported");
-          const { info } = await cache.get(url);
+          if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");
+          const { info } = await cache.get(url, { cookies: data.cookies });
           return send(req, res, 200, {
             title: info.title, thumbnail: info.thumbnail, duration: info.duration,
             options: publicOptions(buildOptions(info)),
@@ -118,7 +118,7 @@ function startServer({ manager, cache, settings, tools, actions }) {
         }
         case "/api/download": {
           const url = String(data.url || "");
-          if (!isYoutubeUrl(url)) throw new Error("Only YouTube links are supported");
+          if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");
           const d = await manager.add(url, String(data.option || ""));
           if (settings.get().showOnStart) actions.show(d.id);
           return send(req, res, 200, d);
