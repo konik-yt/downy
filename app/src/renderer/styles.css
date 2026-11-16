@@ -89,11 +89,7 @@ body:has(.main.has-list) { --sky-dim: .62; }
   -webkit-app-region: drag;
 }
 .crumbs { display: flex; align-items: center; gap: 10px; font-size: 14.5px; }
-.tile {
-  width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center;
-  font-size: 10px; font-weight: 700; color: #0a0920;
-  background: linear-gradient(150deg, #b4aaff, #7f78e6);
-}
+.logo { width: 20px; height: 20px; display: block; image-rendering: auto; }
 .crumb-app { color: var(--muted); }
 .crumb-sep { color: var(--faint); }
 .crumb-page { color: var(--text); font-weight: 500; }
