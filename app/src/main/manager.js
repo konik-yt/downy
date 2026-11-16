@@ -85,7 +85,10 @@ class Manager extends EventEmitter {
     try {
       rows = JSON.parse(fs.readFileSync(this.file, "utf8"));
     } catch {}
+    if (!Array.isArray(rows)) rows = [];
     for (const j of rows) {
+      if (!j || typeof j !== "object" || !j.id) continue;
+      if (j.streams && !Array.isArray(j.streams)) j.streams = [];
       // Anything that was running when Downy closed comes back paused.
       if (ACTIVE.has(j.status) || j.status === "queued") j.status = j.status === "queued" ? "queued" : "paused";
       j.speed = 0;
