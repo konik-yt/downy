@@ -134,6 +134,7 @@
       this.loading = null;
       this.activeId = null;
       this.pollTimer = null;
+      this.missing = 0;
       this.doneId = null;
       this.doneTimer = null;
     }
@@ -234,13 +235,15 @@
       if (this.menu.classList.contains("open")) return this.closeMenu();
       this.menu.classList.add("open");
       this.updateVisibility();
-      if (this.formatsFor === this.video?.id && this.formats) return this.renderFormats();
+      const vid = this.video?.id;
+      if (this.formatsFor === vid && this.formats) return this.renderFormats();
       this.menu.replaceChildren(el("div", "note", "Reading formats from YouTube…"));
       let res = await this.prefetch();
-      if (res && !res.ok && res.offline) res = await this.launchApp();
-      if (!this.menu.classList.contains("open")) return;
+      if (res && !res.ok && res.offline && this.video?.id === vid) res = await this.launchApp();
+      // The user may have moved to another video while this was loading.
+      if (!this.menu.classList.contains("open") || this.video?.id !== vid) return;
       if (res && !res.ok) this.menu.replaceChildren(el("div", "note bad", res.error));
-      else this.renderFormats();
+      else if (this.formatsFor === vid && this.formats) this.renderFormats();
     }
 
     renderFormats() {
@@ -263,7 +266,9 @@
     async start(option) {
       this.closeMenu();
       this.text.textContent = "Starting…";
+      const vid = this.video.id;
       const res = await send({ type: "download", url: this.video.url, option: option.id });
+      if (this.video?.id !== vid) return; // the button now belongs to another video
       if (!res?.ok) {
         this.text.textContent = "Download failed";
         this.menu.replaceChildren(el("div", "note bad", res?.error || "Unknown error"));
@@ -272,6 +277,7 @@
         return;
       }
       this.activeId = res.data.id;
+      this.missing = 0;
       this.poll();
     }
 
@@ -282,7 +288,18 @@
       const res = await send({ type: "list" });
       if (id !== this.activeId) return;
       const d = res?.ok && res.data.downloads.find((x) => x.id === id);
-      if (!d) { this.pollTimer = setTimeout(() => this.poll(), 1500); return; }
+      if (!d) {
+        // Removed from the list, or Downy closed: stop following it after a few tries.
+        if (++this.missing > 4) {
+          this.activeId = null;
+          this.setIdle();
+          this.updateVisibility();
+          return;
+        }
+        this.pollTimer = setTimeout(() => this.poll(), 1500);
+        return;
+      }
+      this.missing = 0;
       const pct = Math.round(d.progress * 100);
       this.fill.style.width = `${pct}%`;
       if (d.status === "downloading" || d.status === "queued") {

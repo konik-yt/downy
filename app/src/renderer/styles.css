@@ -180,27 +180,11 @@ body:has(.main.has-list) { --sky-dim: .62; }
 .main:not(.has-list) .composer { margin-bottom: auto; }
 .main:not(.has-list)::after { content: ""; flex: 0 0 12vh; }
 .hero::before {
-  /* the dark pool T3 puts behind its wordmark */
+  /* a dark pool behind the heading, so it stays readable over the sky */
   content: ""; position: absolute; left: 50%; top: -10%; width: min(60vw, 760px); height: 130%;
   transform: translateX(-50%); z-index: -1;
   background: radial-gradient(closest-side, #000000b8, #00000066 55%, #0000);
   pointer-events: none;
-}
-.wordmark {
-  font: 800 clamp(110px, min(17vw, 26vh), 240px) / 1 var(--font);
-  letter-spacing: -.07em;
-  padding: 0 .12em 0 .05em;
-  margin-bottom: .14em;
-  white-space: nowrap;
-  color: #0000;
-  background: var(--g), linear-gradient(170deg, #d2c8ff, #9aa6ff);
-  background-size: var(--d) var(--d), var(--d) var(--d), 100% 100%;
-  background-attachment: fixed, fixed, scroll;
-  background-position: right bottom, right bottom, 0 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  opacity: .5;
-  mix-blend-mode: plus-lighter;
 }
 .hero h1 { margin: 0; font-size: 34px; font-weight: 500; letter-spacing: -.01em; color: var(--text); }
 .hero .sub { margin: 10px 0 26px; color: var(--muted); font-size: 15px; }
@@ -394,6 +378,12 @@ body:has(.main.has-list) { --sky-dim: .62; }
 .field-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .field-label { font-size: 14px; font-weight: 500; }
 .field-help { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.welcome { width: min(520px, calc(100vw - 32px)); }
+.welcome h2 { margin: 4px 0 6px; font-size: 20px; font-weight: 600; }
+.welcome-sub { margin: 0 0 6px; color: var(--muted); font-size: 13.5px; }
+.welcome-foot { display: flex; justify-content: flex-end; margin-top: 18px; }
+.btn.primary { padding: 8px 16px; border-color: #0000; background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: #fff; font-weight: 600; }
+.btn.primary:hover { border-color: #0000; background: linear-gradient(90deg, #948df0, #7f9bff); color: #fff; }
 .field-help.path { color: var(--text-soft); word-break: break-all; user-select: text; }
 
 .switch {

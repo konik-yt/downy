@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const { spawn, execFile } = require("child_process");
 const { EventEmitter } = require("events");
 const tools = require("./tools");
-const { buildOptions } = require("./formats");
+const { buildOptions, TTL: INFO_TTL } = require("./formats");
 const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("./segmented");
 
 const ACTIVE = new Set(["downloading", "merging", "converting"]);
@@ -16,19 +16,31 @@ const PROGRESS_RE = /^DOWNY\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$/
 
 const CHILD_ENV = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" };
 
-function safeName(name) {
-  const clean = String(name || "video")
+function cleanName(name) {
+  return String(name || "")
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[. ]+$/, "");
-  return (clean || "video").slice(0, 150);
+}
+
+function safeName(name) {
+  return (cleanName(name) || "video").slice(0, 150);
+}
+
+// Like safeName, but a long file name is cut before its extension so the extension stays.
+function safeFileName(name) {
+  const clean = cleanName(name) || "download";
+  if (clean.length <= 150) return clean;
+  const ext = path.extname(clean).slice(0, 20);
+  return cleanName(clean.slice(0, 150 - ext.length)) + ext;
 }
 
 // Folder layout inside the download folder:
 //   Downloads\          files caught from the browser or pasted links
 //   YouTube\<format>\   YouTube files, one folder per format (MP3, M4A, 720p, 1080p ...)
 const FILES_DIR = "Downloads";
+const LEGACY_PARTS = ".downy-parts";
 const YOUTUBE_DIR = "YouTube";
 
 function nameFromUrl(url) {
@@ -59,6 +71,12 @@ function linkExpired(url) {
   }
 }
 
+function removeQuietly(file) {
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {}
+}
+
 function killTree(proc) {
   if (!proc || proc.exitCode !== null) return;
   if (process.platform === "win32") execFile("taskkill", ["/T", "/F", "/PID", String(proc.pid)], { windowsHide: true }, () => {});
@@ -75,6 +93,7 @@ class Manager extends EventEmitter {
     this.jobs = new Map();
     this.runtime = new Map(); // id -> { ctrl, proc, bytes, samples }
     this.load();
+    this.sweepParts();
     this.ticker = setInterval(() => this.tick(), 500);
   }
 
@@ -85,7 +104,10 @@ class Manager extends EventEmitter {
     try {
       rows = JSON.parse(fs.readFileSync(this.file, "utf8"));
     } catch {}
+    if (!Array.isArray(rows)) rows = [];
     for (const j of rows) {
+      if (!j || typeof j !== "object" || !j.id) continue;
+      if (j.streams && !Array.isArray(j.streams)) j.streams = [];
       // Anything that was running when Downy closed comes back paused.
       if (ACTIVE.has(j.status) || j.status === "queued") j.status = j.status === "queued" ? "queued" : "paused";
       j.speed = 0;
@@ -141,7 +163,7 @@ class Manager extends EventEmitter {
       created: j.created, finished: j.finished, mode: j.mode, phase: j.phase || "",
       stream: current ? { role: current.role, index: j.streams.indexOf(current) + 1, count: j.streams.length } : null,
       segments, connections: segments.filter((s) => s.live).length || (rt?.proc ? this.settings.get().connections : 0),
-      postProgress: j.postProgress || 0,
+      postProgress: j.postProgress || 0, resumable: j.resumable,
     };
   }
 
@@ -159,6 +181,15 @@ class Manager extends EventEmitter {
       this.emitTimer = null;
       this.emit("update", this.list());
     }, 150);
+  }
+
+  // Info files that yt-dlp may still need to resume a download.
+  infoFiles() {
+    const keep = new Set();
+    for (const j of this.jobs.values()) {
+      if (j.infoFile && j.status !== "done" && j.status !== "cancelled") keep.add(path.resolve(j.infoFile));
+    }
+    return keep;
   }
 
   folderCounts() {
@@ -215,7 +246,7 @@ class Manager extends EventEmitter {
     // Check the link before taking the download from the browser, so a link that
     // only works inside the browser can go back to it.
     const info = await probe(st, AbortSignal.timeout(20000));
-    const name = safeName(filename || info.filename || nameFromUrl(info.finalUrl) || nameFromUrl(url) || "download");
+    const name = safeFileName(filename || info.filename || nameFromUrl(info.finalUrl) || nameFromUrl(url) || "download");
     const wantsPage = /html/.test(mime || "") || /\.html?$/i.test(name);
     if (info.type === "text/html" && !wantsPage) throw new Error("This link opens a web page, not a file");
     st.size = info.size;
@@ -288,19 +319,26 @@ class Manager extends EventEmitter {
   remove(id) {
     const j = this.jobs.get(id);
     if (!j || this.runtime.has(id)) return;
-    if (!FINISHED.has(j.status)) this.cleanup(j);
     this.jobs.delete(id);
+    this.cleanup(j); // a failed job still has its part files for a retry
     this.save();
     this.changed();
   }
 
-  clearFinished() {
-    for (const [id, j] of this.jobs) if (FINISHED.has(j.status)) this.jobs.delete(id);
+  // scope "done" clears finished downloads, "failed" clears failed and cancelled ones, anything else clears both.
+  clearFinished(scope) {
+    const match = scope === "done" ? (s) => s === "done" : scope === "failed" ? (s) => s === "error" || s === "cancelled" : (s) => FINISHED.has(s);
+    for (const [id, j] of this.jobs) {
+      if (!match(j.status)) continue;
+      this.jobs.delete(id);
+      this.cleanup(j);
+    }
     this.save();
     this.changed();
   }
 
   async shutdown() {
+    this.stopping = true; // jobs that stop now must not start the next queued one
     clearInterval(this.ticker);
     for (const [id, rt] of this.runtime) {
       const j = this.jobs.get(id);
@@ -320,6 +358,7 @@ class Manager extends EventEmitter {
   }
 
   schedule() {
+    if (this.stopping) return;
     const max = Math.max(1, this.settings.get().maxActive);
     const queued = [...this.jobs.values()].filter((j) => j.status === "queued").sort((a, b) => a.created - b.created);
     for (const j of queued) {
@@ -368,13 +407,64 @@ class Manager extends EventEmitter {
     });
   }
 
+  // Unfinished files live in Downy's own data folder, so the download folder only holds finished files.
   partsDir() {
-    const dir = path.join(this.settings.get().downloadDir, ".downy-parts");
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-      if (process.platform === "win32") execFile("attrib", ["+h", dir], { windowsHide: true }, () => {});
-    }
+    const dir = path.join(this.dataDir, "parts");
+    fs.mkdirSync(dir, { recursive: true });
     return dir;
+  }
+
+  // Older versions kept unfinished files in a hidden .downy-parts folder inside the download folder.
+  isPartsDir(dir) {
+    return path.basename(dir) === LEGACY_PARTS || path.resolve(dir) === path.resolve(this.dataDir, "parts");
+  }
+
+  // Deletes leftover temporary files that no download uses any more, and the old
+  // .downy-parts folders once they are empty. That includes folders left behind in
+  // download folders the user has since moved away from.
+  sweepParts() {
+    const dirs = new Set([this.partsDir(), path.join(this.settings.get().downloadDir, LEGACY_PARTS)]);
+    const used = new Set();
+    const bases = [];
+    for (const j of this.jobs.values()) {
+      for (const st of j.streams || []) {
+        if (!st.path) continue;
+        used.add(path.resolve(st.path).toLowerCase());
+        dirs.add(path.dirname(st.path));
+      }
+      if (j.tempDir) dirs.add(j.tempDir);
+      if (j.mode === "ytdlp" && j.status !== "done" && j.status !== "cancelled") bases.push(this.ytdlpBase(j) + ".");
+      // A finished file sits one to three folders below the download folder it was saved to.
+      let up = j.filepath ? path.dirname(j.filepath) : "";
+      for (let i = 0; up && i < 3; i++) {
+        dirs.add(path.join(up, LEGACY_PARTS));
+        up = path.dirname(up) === up ? "" : path.dirname(up);
+      }
+    }
+    const current = path.resolve(this.partsDir());
+    for (const dir of dirs) {
+      if (!this.isPartsDir(dir)) continue;
+      let entries = [];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      let left = entries.length;
+      for (const e of entries) {
+        const full = path.join(dir, e.name);
+        if (!e.isFile() || used.has(path.resolve(full).toLowerCase()) || bases.some((b) => e.name.startsWith(b))) continue;
+        try {
+          fs.rmSync(full, { force: true });
+          left--;
+        } catch {}
+      }
+      if (!left && path.resolve(dir) !== current) {
+        try {
+          fs.rmdirSync(dir);
+        } catch {}
+      }
+    }
   }
 
   targetDir(j) {
@@ -392,7 +482,7 @@ class Manager extends EventEmitter {
     const base = safeName(j.title);
     if (j.kind === "video") return `${base} (${j.height}p).mp4`;
     if (j.kind === "mp3") return `${base}.mp3`;
-    if (j.kind === "file") return safeName(j.filename);
+    if (j.kind === "file") return safeFileName(j.filename);
     return `${base}.m4a`;
   }
 
@@ -471,9 +561,15 @@ class Manager extends EventEmitter {
     if (j.kind === "file") {
       const from = j.streams[0].path;
       try {
-        fs.renameSync(from, out);
+        await fs.promises.rename(from, out);
       } catch {
-        fs.copyFileSync(from, out); // the download folder may be on another drive
+        // The download folder is on another drive. Copy without blocking the app; cleanup removes the original.
+        try {
+          await fs.promises.copyFile(from, out);
+        } catch (e) {
+          removeQuietly(out);
+          throw e;
+        }
       }
       j.filepath = out;
       return;
@@ -492,18 +588,26 @@ class Manager extends EventEmitter {
       args = ["-i", inputs[0], "-vn", "-c:a", "libmp3lame", "-q:a", "0", ...meta, out];
     } else {
       j.status = "converting";
-      args = ["-i", inputs[0], "-vn", "-c:a", "copy", ...meta, out];
+      // Without m4a audio the picker falls back to webm (opus), which an .m4a file cannot hold.
+      const codec = j.streams[0].ext === "m4a" ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"];
+      args = ["-i", inputs[0], "-vn", ...codec, ...meta, out];
     }
     j.postProgress = 0;
     this.changed();
+    // A stopped or failed ffmpeg leaves a broken file behind; uniquePath made sure it is ours.
     try {
       await this.ffmpeg(args, j, rt);
     } catch (e) {
+      removeQuietly(out);
       if (j.kind !== "video" || rt.ctrl.signal.aborted) throw e;
       // Some codec pairs do not fit in MP4. MKV holds anything.
-      fs.rmSync(out, { force: true });
       const mkv = uniquePath(out.replace(/\.mp4$/, ".mkv"));
-      await this.ffmpeg([...args.slice(0, -3), mkv], j, rt);
+      try {
+        await this.ffmpeg([...args.slice(0, -3), mkv], j, rt);
+      } catch (e2) {
+        removeQuietly(mkv);
+        throw e2;
+      }
       j.filepath = mkv;
       return;
     }
@@ -535,16 +639,29 @@ class Manager extends EventEmitter {
 
   // Formats that are not plain HTTP files (HLS or DASH fragments) go through yt-dlp,
   // which also downloads fragments over several connections and resumes .part files.
-  runYtdlp(j, rt) {
+  async runYtdlp(j, rt) {
     const bin = tools.find("yt-dlp");
     if (!bin) throw new Error("yt-dlp was not found");
     const s = this.settings.get();
     const dir = this.targetDir(j);
-    const base = safeName(j.title) + (j.kind === "video" ? ` (${j.height}p)` : "");
+    // yt-dlp reads % as the start of a template field, so a literal % is written %%.
+    const base = this.ytdlpBase(j).replace(/%/g, "%%");
+    // A resumed job keeps the temp folder it started in, where its partial files are.
+    if (!j.tempDir || !fs.existsSync(j.tempDir)) j.tempDir = this.partsDir();
+    // The stream links in an old info file have expired; get fresh ones, or let yt-dlp read the page.
+    let infoFile = fs.existsSync(j.infoFile || "") ? j.infoFile : "";
+    if (infoFile && Date.now() - fs.statSync(infoFile).mtimeMs > INFO_TTL) {
+      try {
+        infoFile = j.infoFile = (await this.cache.get(j.url, { fresh: true })).file;
+      } catch {
+        infoFile = "";
+      }
+      if (rt.ctrl.signal.aborted) throw new AbortError();
+    }
     const args = [
-      fs.existsSync(j.infoFile || "") ? "--load-info-json" : "--no-playlist",
-      fs.existsSync(j.infoFile || "") ? j.infoFile : j.url,
-      "-f", j.selector, "-P", dir, "-P", `temp:${this.partsDir()}`, "-o", `${base}.%(ext)s`,
+      infoFile ? "--load-info-json" : "--no-playlist",
+      infoFile || j.url,
+      "-f", j.selector, "-P", dir, "-P", `temp:${j.tempDir}`, "-o", `${base}.%(ext)s`,
       "-N", String(s.connections), "--newline", "--progress", "--no-mtime", "--no-warnings",
       "--ffmpeg-location", tools.find("ffmpeg"),
       "--progress-template",
@@ -554,6 +671,7 @@ class Manager extends EventEmitter {
     ];
     if (j.kind === "video") args.push("--merge-output-format", "mp4");
     if (j.kind === "mp3") args.push("-x", "--audio-format", "mp3", "--audio-quality", "0");
+    if (j.kind === "audio" && j.streams?.[0]?.ext !== "m4a") args.push("-x", "--audio-format", "m4a");
     return new Promise((resolve, reject) => {
       const proc = spawn(bin, args, { windowsHide: true, env: CHILD_ENV });
       rt.proc = proc;
@@ -595,9 +713,31 @@ class Manager extends EventEmitter {
     });
   }
 
+  ytdlpBase(j) {
+    return safeName(j.title) + (j.kind === "video" ? ` (${j.height}p)` : "");
+  }
+
+  // Deletes a job's temporary files. Only ever touches files in a parts folder.
   cleanup(j) {
     for (const st of j.streams || []) {
-      if (st.path) fs.rmSync(st.path, { force: true });
+      if (st.path && this.isPartsDir(path.dirname(st.path))) removeQuietly(st.path);
+      delete st.headers; // they can hold the browser's cookies and are not needed any more
+    }
+    if (j.mode !== "ytdlp") return;
+    // yt-dlp names its temp files after the output name, so keep those of other unfinished jobs.
+    const others = [...this.jobs.values()]
+      .filter((o) => o !== j && o.mode === "ytdlp" && !FINISHED.has(o.status))
+      .map((o) => this.ytdlpBase(o) + ".");
+    const base = this.ytdlpBase(j) + ".";
+    // Jobs from older versions did not record their temp folder; it was inside the download folder.
+    const dir = j.tempDir || path.join(this.settings.get().downloadDir, LEGACY_PARTS);
+    if (!this.isPartsDir(dir)) return;
+    let names = [];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {}
+    for (const n of names) {
+      if (n.startsWith(base) && !others.some((o) => n.startsWith(o))) removeQuietly(path.join(dir, n));
     }
   }
 }

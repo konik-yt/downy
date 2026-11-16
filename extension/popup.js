@@ -1,4 +1,5 @@
-const send = (msg) => chrome.runtime.sendMessage(msg);
+// Rejects while the service worker restarts; treat that as no answer so polling goes on.
+const send = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);
 const $ = (id) => document.getElementById(id);
 
 function el(tag, cls, text) {

@@ -44,7 +44,7 @@ if (!app.requestSingleInstanceLock()) {
     win.removeMenu();
     win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
     win.once("ready-to-show", () => {
-      if (!startHidden) win.show();
+      if (!startHidden || !settings.get().onboarded) win.show(); // the first run always shows the welcome screen
     });
     if (process.env.DOWNY_SCREENSHOT) {
       const shoot = async (n) => {
@@ -123,13 +123,17 @@ if (!app.requestSingleInstanceLock()) {
     return `${(n / 1024 / 1024).toFixed(1)} MB/s`;
   }
 
+  // The portable build runs from a temp folder that is deleted on exit, so register
+  // the .exe the user started, which electron-builder passes in this variable.
+  const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+
   function applyLogin() {
     if (!app.isPackaged) return; // a dev build would register the bare electron.exe
-    app.setLoginItemSettings({ openAtLogin: settings.get().openAtLogin, args: ["--hidden"] });
+    app.setLoginItemSettings({ openAtLogin: settings.get().openAtLogin, path: exePath, args: ["--hidden"] });
   }
 
   // downy:// links let the extension start Downy when it is not running.
-  if (app.isPackaged) app.setAsDefaultProtocolClient("downy");
+  if (app.isPackaged) app.setAsDefaultProtocolClient("downy", exePath, []);
   app.on("second-instance", () => show());
 
   app.whenReady().then(async () => {
@@ -137,6 +141,7 @@ if (!app.requestSingleInstanceLock()) {
     settings = new Settings(dataDir);
     cache = new InfoCache(path.join(dataDir, "cache"));
     manager = new Manager({ dataDir, cache, settings });
+    cache.prune(manager.infoFiles());
 
     createWindow();
     tray = new Tray(icon("tray.png"));
@@ -150,7 +155,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     manager.on("finished", (d) => {
       if (!settings.get().notify || !Notification.isSupported()) return;
-      const n = new Notification({ title: "Download saved", body: `${d.title}\nSaved to ${d.folder}`, icon: path.join(ASSETS, "icon.png") });
+      const n = new Notification({ title: "Download saved", body: `${d.title}\nSaved to ${(d.dir || d.folder).replace(/\//g, " / ")}`, icon: path.join(ASSETS, "icon.png") });
       n.on("click", () => reveal(d.id));
       n.show();
     });
@@ -162,6 +167,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     settings.on("change", () => {
       applyLogin();
+      manager.sweepParts(); // the download folder may have changed
       manager.schedule();
       win?.webContents.send("settings", settings.get());
     });
@@ -175,8 +181,11 @@ if (!app.requestSingleInstanceLock()) {
     manager.schedule();
   });
 
-  // Keep running in the tray when the window closes.
-  app.on("window-all-closed", () => {});
+  // With "Keep running in the tray" on, closing only hides the window, so this runs
+  // when that setting is off. Quit through before-quit so downloads are saved as paused.
+  app.on("window-all-closed", () => {
+    if (!settings?.get().closeToTray) app.quit();
+  });
 
   app.on("before-quit", async (e) => {
     if (quitting) return;
@@ -230,7 +239,7 @@ if (!app.requestSingleInstanceLock()) {
   handle("resume-all", () => manager.resumeAll());
   handle("cancel", (id) => manager.cancel(id));
   handle("remove", (id) => manager.remove(id));
-  handle("clear", () => manager.clearFinished());
+  handle("clear", (scope) => manager.clearFinished(scope));
   handle("open-file", (id) => {
     const j = manager.get(id);
     if (!j?.filepath || !fs.existsSync(j.filepath)) throw new Error("The file was moved or deleted.");
