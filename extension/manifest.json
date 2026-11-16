@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Downy",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Adds a Download this video button over videos on YouTube and the other sites yt-dlp supports, and hands Chrome downloads to the Downy desktop app.",
   "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "action": { "default_popup": "popup.html", "default_title": "Downy" },
