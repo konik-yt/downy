@@ -83,19 +83,21 @@ function startServer({ manager, cache, settings, tools, prompts, actions, token,
       return res.end();
     }
     if (path.startsWith("/api/")) {
-      const fromExtension = req.headers.origin?.startsWith("chrome-extension://") || url.searchParams.has("ext");
+      // Only a version number counts, so no request can put its own text in the window.
+      const ext = url.searchParams.get("ext");
+      const v = ext && /^\d+(\.\d+){0,3}$/.test(ext) ? ext : null;
       if (!hasToken(req)) {
         // An older version is Chrome still running the copy from before an update, so the
         // window says to reload it. The current version without the token was loaded from
         // a zip or from this repo, so the window says to load Downy's folder instead.
-        if (fromExtension) {
-          const v = url.searchParams.get("ext");
+        // Any website can send a GET with an <img> tag, but only an extension sends this Origin.
+        if (req.headers.origin?.startsWith("chrome-extension://")) {
           actions.extensionSeen(v && v !== extensionVersion ? v : null);
         }
         return send(req, res, 401, { error: "This copy of the Downy extension can't talk to Downy. In chrome://extensions, remove it and load the folder Downy shows in Settings, Chrome extension." });
       }
       // The extension adds its version to every request.
-      actions.extensionSeen(url.searchParams.get("ext"));
+      actions.extensionSeen(v);
     }
     try {
       if (req.method === "GET") {
