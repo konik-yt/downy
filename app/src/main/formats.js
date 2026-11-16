@@ -170,7 +170,7 @@ class InfoCache {
 
   extract(url) {
     const bin = tools.find("yt-dlp");
-    if (!bin) return Promise.reject(new Error("yt-dlp was not found. Install it with: winget install yt-dlp.yt-dlp"));
+    if (!bin) return Promise.reject(new Error("yt-dlp was not found. Open Settings in Downy and click Install tools."));
     const args = ["-J", "--no-playlist", "--no-warnings", ...tools.jsRuntimeArgs(), url];
     return new Promise((resolve, reject) => {
       execFile(bin, args, { windowsHide: true, maxBuffer: 256 * 1024 * 1024, timeout: 120000, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } },

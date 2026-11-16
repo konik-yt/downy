@@ -163,7 +163,10 @@
       <button type="button" class="btn" id="updateAction">Check now</button>
     </div>
 
-    <div class="tools" id="toolsList"></div>
+    <div class="tools-row">
+      <div class="tools" id="toolsList"></div>
+      <button type="button" class="btn" id="toolsInstallSettings" hidden>Install tools</button>
+    </div>
   </form>
 </dialog>
 
@@ -172,7 +175,7 @@
     <img class="welcome-logo" src="assets/icon.png" alt="" width="44" height="44">
 
     <section class="welcome-step" id="stepFolder">
-      <p class="step-count">Step 1 of 2</p>
+      <p class="step-count" id="folderStepCount">Step 1 of 2</p>
       <h2 id="welcomeTitle">Welcome to Downy</h2>
       <p class="welcome-sub">Choose where Downy saves your downloads. You can change this later in Settings.</p>
       <div class="field">
@@ -184,6 +187,19 @@
       </div>
       <div class="welcome-foot">
         <button type="button" class="btn primary" id="welcomeNext">Use this folder</button>
+      </div>
+    </section>
+
+    <section class="welcome-step" id="stepTools" hidden>
+      <p class="step-count" id="toolsStepCount">Step 2 of 3</p>
+      <h2 id="toolsTitle">Install the download tools</h2>
+      <p class="welcome-sub">Downy uses yt-dlp to read videos, ffmpeg to join video and audio, and Deno to solve YouTube's player checks. Downy installs the ones you don't have with winget, the package manager built into Windows. This takes a minute or two.</p>
+      <ul class="tool-rows" id="toolRows"></ul>
+      <p class="ext-status" id="toolsStatus" role="status"></p>
+      <div class="welcome-foot">
+        <span class="foot-gap"></span>
+        <button type="button" class="btn" id="toolsSkip">Skip for now</button>
+        <button type="button" class="btn primary" id="toolsInstall">Install</button>
       </div>
     </section>
 

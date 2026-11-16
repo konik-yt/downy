@@ -8,6 +8,7 @@ const { Manager } = require("./manager");
 const { startServer, PORT } = require("./server");
 const { ExtensionCopy, openChrome } = require("./extension");
 const { Updater } = require("./updater");
+const { Installer } = require("./installer");
 
 const ASSETS = path.join(__dirname, "..", "renderer", "assets");
 
@@ -20,7 +21,7 @@ if (!app.requestSingleInstanceLock()) {
   let win = null;
   let tray = null;
   let quitting = false;
-  let settings, cache, manager, extension, updater;
+  let settings, cache, manager, extension, updater, installer;
   let restartForUpdate = false;
   const startHidden = process.argv.includes("--hidden");
 
@@ -146,6 +147,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     const dataDir = app.getPath("userData");
+    installer = new Installer(dataDir);
+    installer.on("change", (st) => win?.webContents.send("install", st));
     settings = new Settings(dataDir);
     cache = new InfoCache(path.join(dataDir, "cache"));
     manager = new Manager({ dataDir, cache, settings });
@@ -195,6 +198,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     manager.schedule();
     updater.start();
+    installer.updateYtdlp();
   });
 
   function restartToUpdate() {
@@ -234,6 +238,7 @@ if (!app.requestSingleInstanceLock()) {
     downloads: manager.list(),
     settings: settings.get(),
     tools: tools.status(),
+    install: installer.state,
     extension: extension.status(),
     update: updater.state,
     maximized: win?.isMaximized() || false,
@@ -260,6 +265,10 @@ if (!app.requestSingleInstanceLock()) {
   handle("extension:show-folder", () => {
     extension.sync(); // put the files back if someone deleted them
     shell.openPath(extension.dir);
+  });
+  handle("tools:install", async () => {
+    const st = await installer.install();
+    return { install: st, tools: tools.status() };
   });
   handle("update:check", () => updater.check());
   handle("update:restart", () => restartToUpdate());
