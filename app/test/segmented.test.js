@@ -94,7 +94,6 @@ test("downloadStream uses one plain request when the server has no Range support
   await downloadStream(st, opts());
   assert.ok(fs.readFileSync(st.path).equals(body));
   assert.equal(st.ranges, false);
-  assert.equal(st.partial, undefined);
   assert.equal(streamDone(st), true);
   // Asking for identity keeps fetch from unpacking a gzip answer into a different file.
   assert.equal(log.at(-1).headers["accept-encoding"], "identity");

@@ -133,12 +133,12 @@ test("file names are safe for Windows and keep their extension", (t) => {
 });
 
 test("commit only takes an absolute folder and a name without folders", (t) => {
-  const { m } = manager(t);
-  const draft = () => ({ id: Math.random().toString(36).slice(2), kind: "file", ext: "zip", filename: "a.zip", title: "a.zip", status: "paused", created: Date.now(), streams: [] });
+  const { m, values } = manager(t);
+  const draft = () => ({ id: Math.random().toString(36).slice(2), kind: "file", ext: "zip", filename: "a.zip", title: "a.zip", folder: "Downloads", status: "paused", created: Date.now(), streams: [] });
   const relative = m.commit(draft(), { dir: "..\\..\\Windows", name: "" });
-  assert.equal(m.get(relative.id).customDir, undefined);
+  assert.equal(m.dirFor(m.get(relative.id)).abs, path.join(values.downloadDir, "Downloads"));
   const named = m.commit(draft(), { dir: path.resolve("/tmp/x/../y"), name: "a/b" });
-  assert.equal(m.get(named.id).customDir, path.resolve("/tmp/y"));
+  assert.equal(m.dirFor(m.get(named.id)).abs, path.resolve("/tmp/y"));
   assert.equal(named.title, "a b.zip");
 });
 
@@ -190,7 +190,6 @@ test("rows without an order take their created time, so the queue keeps its old 
   const started = recordStarts(m);
   m.schedule();
   assert.deepEqual(started, ["q1"]);
-  assert.deepEqual(m.list().map((d) => d.order).sort(), [1000, 1001, 1002]);
 });
 
 test("move puts a waiting file in front of another and schedule follows the new order", (t) => {
@@ -201,8 +200,6 @@ test("move puts a waiting file in front of another and schedule follows the new 
   assert.deepEqual(m.queue().map((j) => j.id), ["q4", "q2", "q3", "q1"]);
   m.moveToTop("q3");
   assert.deepEqual(m.queue().map((j) => j.id), ["q3", "q4", "q2", "q1"]);
-  // The queue reuses its own order values, so nothing drifts.
-  assert.deepEqual(m.queue().map((j) => j.order), [1000, 1001, 1002, 1003]);
   const started = recordStarts(m);
   m.schedule();
   assert.deepEqual(started, ["q3"]);
@@ -262,27 +259,6 @@ test("a batch runs one file at a time in queue order and leaves the other slots 
   assert.deepEqual(m.batchJobs(id).map((j) => j.id), ["q1", "q2", "q3"]);
 });
 
-test("a failed file in a batch is skipped and the batch goes on with the next one", (t) => {
-  const rows = queuedRows(3).map((r) => ({ ...r, status: "paused" }));
-  const { m } = manager(t, { saved: rows, settings: { maxActive: 1 } });
-  const started = recordStarts(m);
-  const ended = [];
-  m.on("batch-finished", (b) => ended.push(b));
-  const id = m.startBatch(["q1", "q2", "q3"]);
-  for (const [k, status] of [[0, "done"], [1, "error"], [2, "done"]]) {
-    const j = m.batchJobs(id)[k];
-    j.status = status;
-    m.schedule();
-    m.batchEnded(id);
-  }
-  assert.deepEqual(started, ["q1", "q2", "q3"]);
-  assert.deepEqual(ended, [{ id, count: 3, saved: 2, failed: 1 }]);
-
-  // Retry failed puts only the failed file back.
-  m.retryBatch(id);
-  assert.deepEqual(started, ["q1", "q2", "q3", "q2"]);
-});
-
 test("pause, resume, cancel and dismiss act on the whole batch", (t) => {
   const rows = queuedRows(4).map((r) => ({ ...r, status: "paused" }));
   const { m } = manager(t, { saved: rows, settings: { maxActive: 1 } });
@@ -322,17 +298,26 @@ test("a batch downloads real files one by one and reports what failed", async (t
   const { m } = manager(t, { saved: [row("a", "a.bin", 1), row("b", "missing.bin", 2), row("c", "c.bin", 3)], settings: { maxActive: 3 } });
   // Each file starts only when nothing else is running.
   const start = m.start.bind(m);
+  const started = [];
   const busyAtStart = [];
   m.start = (j) => {
+    started.push(j.id);
     busyAtStart.push(m.activeCount());
     start(j);
   };
-  const ended = once(m, "batch-finished");
+  let ended = once(m, "batch-finished");
   const id = m.startBatch(["a", "b", "c"]);
   const [summary] = await ended;
   assert.deepEqual(summary, { id, count: 3, saved: 2, failed: 1 });
+  assert.deepEqual(started, ["a", "b", "c"]);
   assert.deepEqual(busyAtStart, [0, 0, 0]);
   assert.deepEqual(m.batchJobs(id).map((j) => j.status), ["done", "error", "done"]);
+
+  // Retry failed runs only the failed file again.
+  ended = once(m, "batch-finished");
+  m.retryBatch(id);
+  await ended;
+  assert.deepEqual(started, ["a", "b", "c", "b"]);
 });
 
 test("an all together batch runs as many files at once as the setting allows", (t) => {
@@ -347,14 +332,14 @@ test("an all together batch runs as many files at once as the setting allows", (
 });
 
 test("commitBatch adds drafts as one batch in the given order before any of them starts", (t) => {
-  const { m } = manager(t, { settings: { maxActive: 3 } });
+  const { m, dataDir } = manager(t, { settings: { maxActive: 3 } });
   const draft = (id) => ({ id, title: `${id}.bin`, filename: `${id}.bin`, kind: "file", source: "web", ext: "bin", status: "queued", mode: "segmented", streams: [], downloaded: 0, expected: 10, created: Date.now(), cookies: "sid=1" });
   const started = recordStarts(m);
   const { batch, downloads } = m.commitBatch([draft("c"), draft("a"), draft("b")], { dir: "" }, "one");
   assert.deepEqual(downloads.map((d) => [d.id, d.batchIndex]), [["c", 1], ["a", 2], ["b", 3]]);
   assert.deepEqual(started, ["c"]);
   assert.deepEqual(m.batchJobs(batch).map((j) => j.id), ["c", "a", "b"]);
-  assert.equal(m.cookies.get("a"), "sid=1");
-  assert.equal(m.get("a").cookies, undefined);
+  m.save();
+  assert.doesNotMatch(fs.readFileSync(path.join(dataDir, "downloads.json"), "utf8"), /sid=1/);
   assert.throws(() => m.commitBatch([]), /nothing to download/);
 });

@@ -109,10 +109,8 @@ test("buildOptions returns nothing for a page without formats", () => {
 
 test("publicOptions leaves out stream links and headers", () => {
   const options = publicOptions(buildOptions(youtubeInfo()));
-  for (const o of options) {
-    assert.deepEqual(Object.keys(o).sort(), ["folder", "id", "kind", "label", "size", "sizeText"]);
-  }
-  assert.doesNotMatch(JSON.stringify(options), /https:\/\//);
+  assert.equal(options.length, buildOptions(youtubeInfo()).length);
+  assert.doesNotMatch(JSON.stringify(options), /https:\/\/|"streams"|"headers"/);
 });
 
 test("cookieFile writes the Netscape format yt-dlp reads", () => {

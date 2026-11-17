@@ -11,8 +11,6 @@ function tempDir(t) {
   return dir;
 }
 
-const saved = (dir) => JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8"));
-
 test("a first start uses the defaults and still needs the welcome screen", (t) => {
   const s = new Settings(tempDir(t));
   const v = s.get();
@@ -72,6 +70,5 @@ test("set saves to disk and tells listeners", (t) => {
   s.on("change", (v) => (seen = v));
   s.set({ maxActive: 5 });
   assert.equal(seen.maxActive, 5);
-  assert.equal(saved(dir).maxActive, 5);
   assert.equal(new Settings(dir).get().maxActive, 5);
 });
