@@ -1443,7 +1443,8 @@ function wire() {
   renderUpdate();
   renderTools();
   defaultHint();
-  $("url").focus();
+  // With a list, the box stays a single line until it is used. Pasting works anywhere in the window.
+  if (!state.downloads.length) $("url").focus();
   if (!state.settings.onboarded) {
     $("welcome").showModal();
     $("welcomeNext").focus();
