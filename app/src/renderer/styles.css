@@ -540,43 +540,77 @@ body:has(.main:not([data-view="idle"])) .sky::after { opacity: 1; }
 
 /* ------------------------------------------------------------ settings */
 
-/* A sheet that slides in from the right over the dimmed window. */
-.sheet {
-  position: fixed; inset: 8px 8px 8px auto; margin: 0;
-  width: min(440px, calc(100vw - 16px)); height: calc(100vh - 16px); max-height: none; max-width: none;
+/* A large window over the dimmed app, laid out like T3 Code's settings: a side menu of
+   sections, a bar with where you are and a close button, and one section at a time. */
+.settings {
+  position: fixed; inset: 0; margin: auto;
+  width: min(880px, calc(100vw - 48px)); height: min(620px, calc(100vh - 72px)); max-height: none; max-width: none;
   padding: 0; border-radius: 18px; color: var(--text); overflow: hidden;
-  background: linear-gradient(180deg, #8a7fe826, #6f8cff08 40%, #0000), color-mix(in srgb, #0b0a1e 84%, #0000);
+  background: linear-gradient(180deg, #8a7fe81f, #6f8cff08 40%, #0000), color-mix(in srgb, #0b0a1e 88%, #0000);
   border: 1px solid #b4aaff1f;
-  box-shadow: inset 0 1px 0 #ffffff14, 0 30px 80px -10px #000;
+  box-shadow: inset 0 1px 0 #ffffff14, 0 40px 100px -10px #000;
   backdrop-filter: blur(26px) saturate(1.3);
   user-select: none;
 }
-.sheet::backdrop { background: #00000080; }
-.sheet[open] { animation: slide .26s var(--ease); }
-@keyframes slide { from { opacity: 0; transform: translateX(28px); } }
-.sheet-inner { display: flex; flex-direction: column; height: 100%; }
-.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 14px 8px 20px; }
-.sheet-head h2 { font-size: 18px; font-weight: 600; }
-.sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px; }
-.sheet-body::-webkit-scrollbar { width: 8px; }
-.sheet-body::-webkit-scrollbar-thumb { background: #b4aaff26; border-radius: 8px; border: 2px solid #0000; background-clip: padding-box; }
-.group-label { color: var(--muted); font-size: 12px; font-weight: 500; padding: 0 4px 6px; }
+.settings::backdrop { background: #00000080; }
+.settings:focus { outline: none; }
+.settings[open] { animation: rise .16s var(--ease); }
+@keyframes rise { from { opacity: 0; transform: scale(.985); } }
+.set-inner { display: grid; grid-template-columns: 208px minmax(0, 1fr); height: 100%; }
+
+.set-nav { display: flex; flex-direction: column; gap: 2px; padding: 14px 10px; background: #05041266; border-right: 1px solid var(--line-soft); }
+.set-nav-title { font-size: 13px; font-weight: 600; color: var(--text-soft); padding: 4px 10px 12px; }
+.set-link {
+  display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 9px;
+  border: 1px solid #0000; background: none; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 500; text-align: left;
+}
+.set-link .ic { width: 16px; height: 16px; flex: none; }
+.set-link:hover { background: #b4aaff12; color: var(--text); }
+.set-link[aria-current="page"] {
+  color: var(--text); border-color: var(--line-accent);
+  background: linear-gradient(90deg, #8a7fe84d, #6f8cff1a), #0d0b26;
+  box-shadow: inset 0 1px 0 #ffffff12;
+}
+.set-link[aria-current="page"] .ic { color: var(--accent-hi); }
+
+.set-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.set-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 52px; flex: none; padding: 0 10px 0 24px; border-bottom: 1px solid var(--line-soft); }
+.set-crumb { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 13px; }
+.set-crumb b { color: var(--text); font-weight: 500; }
+.set-crumb-sep .ic { width: 13px; height: 13px; opacity: .6; display: block; }
+.set-body { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 24px 28px; container: set-body / inline-size; }
+.set-body::-webkit-scrollbar { width: 8px; }
+.set-body::-webkit-scrollbar-thumb { background: #b4aaff26; border-radius: 8px; border: 2px solid #0000; background-clip: padding-box; }
+.set-page { max-width: 620px; }
+.set-page h3 { font-size: 16px; font-weight: 600; }
+.set-page-help { color: var(--muted); font-size: 12.5px; margin: 4px 0 14px; }
+.set-sub { font-size: 12px; font-weight: 500; color: var(--muted); margin: 20px 0 8px 2px; }
+.set-tools-btn { margin-top: 10px; }
+
 .card { border-radius: 14px; overflow: hidden; background: var(--plate); border: 1px solid var(--line-soft); box-shadow: inset 0 1px 0 #ffffff0a; }
-.field { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 8px 14px; min-height: 52px; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 32px; padding: 12px 16px; min-height: 56px; }
 .field + .field { border-top: 1px solid var(--line-soft); }
-.field-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.field-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .field-label { font-size: 13.5px; font-weight: 500; }
-.field-help { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.field-help { font-size: 12px; color: var(--muted); line-height: 1.45; }
 .field-help.path { color: var(--text-soft); font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace; word-break: break-all; user-select: text; }
+.field-value { color: var(--text-soft); font-size: 13px; font-variant-numeric: tabular-nums; user-select: text; }
 #extStatusSettings[data-tone="ok"] { color: var(--mint); }
 #extStatusSettings[data-tone="warn"] { color: var(--amber); }
-.sheet-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 12px 20px 16px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12px; }
-.tools { display: flex; flex-wrap: wrap; gap: 6px 14px; }
-.tools span { display: inline-flex; align-items: center; gap: 5px; }
-.tools .ic { width: 13px; height: 13px; }
-.tools .ok .ic { color: var(--mint); }
-.tools .missing { color: var(--rose-hi); }
-.sheet-foot .btn { margin-left: auto; height: 28px; }
+.tool-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--mint); }
+.tool-state .ic { width: 14px; height: 14px; }
+.tool-state.missing { color: var(--rose-hi); }
+
+/* In a narrow pane the control drops under its text, as in T3 Code. */
+@container set-body (max-width: 440px) {
+  .field { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+}
+@media (max-width: 760px) {
+  .set-inner { grid-template-columns: 56px minmax(0, 1fr); }
+  .set-nav { padding: 14px 8px; }
+  .set-nav-title, .set-link span { display: none; }
+  .set-link { justify-content: center; padding: 0; }
+}
 
 .switch {
   appearance: none; flex: none; width: 38px; height: 22px; border-radius: 22px; margin: 0; cursor: pointer;

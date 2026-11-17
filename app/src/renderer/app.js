@@ -1575,11 +1575,14 @@ function renderSettings() {
   const t = state.tools || {};
   const runtime = t.jsRuntime && !/deno/i.test(t.jsRuntime) ? "Node.js" : "Deno";
   $("toolsList").replaceChildren(...[["yt-dlp", t.ytdlp], ["ffmpeg", t.ffmpeg], [runtime, t.jsRuntime]].map(([name, found]) => {
-    const span = el("span", found ? "ok" : "missing");
-    span.innerHTML = icon(found ? "tick" : "alert");
-    span.append(found ? name : `${name} missing`);
-    span.title = found || `${name} was not found`;
-    return span;
+    const row = el("div", "field");
+    const text = el("span", "field-text");
+    text.append(el("span", "field-label", name), el("span", found ? "field-help path" : "field-help", found || "Not found"));
+    const st = el("span", found ? "tool-state" : "tool-state missing");
+    st.innerHTML = icon(found ? "tick" : "alert");
+    st.append(found ? "Ready" : "Missing");
+    row.append(text, st);
+    return row;
   }));
   renderTools();
 }
@@ -1842,11 +1845,37 @@ function wire() {
   $("selBatch").onclick = () => batchPicked("one");
 
   const dialog = $("settings");
+  const links = [...dialog.querySelectorAll(".set-link")];
+  const showPage = (page) => {
+    for (const l of links) {
+      const on = l.dataset.page === page;
+      if (on) {
+        l.setAttribute("aria-current", "page");
+        $("setCrumb").textContent = l.textContent;
+      } else l.removeAttribute("aria-current");
+    }
+    for (const p of dialog.querySelectorAll(".set-page")) p.hidden = p.dataset.page !== page;
+    $("setBody").scrollTop = 0;
+  };
+  for (const l of links) l.onclick = () => showPage(l.dataset.page);
+  $("setNav").addEventListener("keydown", (e) => {
+    const i = links.indexOf(document.activeElement);
+    if (i < 0) return;
+    const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: links.length - 1 }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    const l = links[(to + links.length) % links.length];
+    l.focus();
+    showPage(l.dataset.page);
+  });
+  showPage("saving");
   const openSettings = async () => {
     const res = await downy.recheckTools();
     if (res.ok) state.tools = res.data;
     renderSettings();
     dialog.showModal();
+    // Start with focus on the window itself, so no link shows a focus ring until the keyboard is used.
+    dialog.focus();
     $("openSettings").setAttribute("aria-pressed", "true");
   };
   dialog.addEventListener("close", () => $("openSettings").setAttribute("aria-pressed", "false"));

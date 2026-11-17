@@ -84,126 +84,152 @@
   </div>
 </main>
 
-<dialog class="sheet" id="settings" aria-labelledby="settingsTitle">
-  <form method="dialog" class="sheet-inner" id="settingsForm">
-    <div class="sheet-head">
-      <h2 id="settingsTitle">Settings</h2>
-      <button class="icon-btn" value="close" aria-label="Close settings" data-icon="x"></button>
-    </div>
+<dialog class="settings" id="settings" aria-labelledby="settingsTitle" tabindex="-1">
+  <form method="dialog" class="set-inner" id="settingsForm">
+    <nav class="set-nav" id="setNav" aria-label="Settings sections">
+      <h2 class="set-nav-title" id="settingsTitle">Settings</h2>
+      <button type="button" class="set-link" data-page="saving" data-icon="folder"><span>Saving</span></button>
+      <button type="button" class="set-link" data-page="speed" data-icon="zap"><span>Speed</span></button>
+      <button type="button" class="set-link" data-page="chrome" data-icon="chrome"><span>Chrome</span></button>
+      <button type="button" class="set-link" data-page="app" data-icon="monitor"><span>App</span></button>
+      <button type="button" class="set-link" data-page="about" data-icon="info"><span>About</span></button>
+    </nav>
 
-    <div class="sheet-body">
-      <section class="group" aria-labelledby="gSaving">
-        <h3 class="group-label" id="gSaving">Saving</h3>
-        <div class="card">
-          <div class="field">
-            <div class="field-text">
-              <span class="field-label">Download folder</span>
-              <span class="field-help path" id="setDir"></span>
+    <div class="set-main">
+      <div class="set-head">
+        <p class="set-crumb"><span>Settings</span><span class="set-crumb-sep" data-icon="chevronRight"></span><b id="setCrumb">Saving</b></p>
+        <button class="icon-btn" value="close" aria-label="Close settings" title="Close" data-icon="x"></button>
+      </div>
+
+      <div class="set-body" id="setBody">
+        <section class="set-page" data-page="saving" aria-labelledby="pSaving">
+          <h3 id="pSaving">Saving</h3>
+          <p class="set-page-help">Where Downy puts your files</p>
+          <div class="card">
+            <div class="field">
+              <div class="field-text">
+                <span class="field-label">Download folder</span>
+                <span class="field-help path" id="setDir"></span>
+              </div>
+              <button type="button" class="btn" id="setDirBtn">Change</button>
             </div>
-            <button type="button" class="btn" id="setDirBtn">Change</button>
+            <label class="field">
+              <span class="field-text">
+                <span class="field-label">Sort YouTube files by format</span>
+                <span class="field-help">A folder per format, such as MP3 or 1080p. Other files go into Downloads.</span>
+              </span>
+              <input type="checkbox" class="switch" name="organize">
+            </label>
           </div>
-          <label class="field">
-            <span class="field-text">
-              <span class="field-label">Sort YouTube files by format</span>
-              <span class="field-help">A folder per format, such as MP3 or 1080p. Other files go into Downloads.</span>
-            </span>
-            <input type="checkbox" class="switch" name="organize">
-          </label>
-        </div>
-      </section>
+        </section>
 
-      <section class="group" aria-labelledby="gSpeed">
-        <h3 class="group-label" id="gSpeed">Speed</h3>
-        <div class="card">
-          <div class="field">
-            <span class="field-text">
-              <span class="field-label" id="connLabel">Connections per file</span>
-              <span class="field-help">Downy fetches parts of a file at the same time. 8 works well for YouTube.</span>
-            </span>
-            <div class="stepper" role="group" aria-labelledby="connLabel">
-              <button type="button" data-step="connections" data-delta="-1" aria-label="Fewer connections" data-icon="minus"></button>
-              <output name="connections"></output>
-              <button type="button" data-step="connections" data-delta="1" aria-label="More connections" data-icon="plus"></button>
+        <section class="set-page" data-page="speed" aria-labelledby="pSpeed" hidden>
+          <h3 id="pSpeed">Speed</h3>
+          <p class="set-page-help">How many connections and downloads run at once</p>
+          <div class="card">
+            <div class="field">
+              <span class="field-text">
+                <span class="field-label" id="connLabel">Connections per file</span>
+                <span class="field-help">Downy fetches parts of a file at the same time. 8 works well for YouTube.</span>
+              </span>
+              <div class="stepper" role="group" aria-labelledby="connLabel">
+                <button type="button" data-step="connections" data-delta="-1" aria-label="Fewer connections" data-icon="minus"></button>
+                <output name="connections"></output>
+                <button type="button" data-step="connections" data-delta="1" aria-label="More connections" data-icon="plus"></button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="field-text">
+                <span class="field-label" id="activeLabel">Downloads at the same time</span>
+                <span class="field-help">The rest wait in line</span>
+              </span>
+              <div class="stepper" role="group" aria-labelledby="activeLabel">
+                <button type="button" data-step="maxActive" data-delta="-1" aria-label="Fewer downloads at once" data-icon="minus"></button>
+                <output name="maxActive"></output>
+                <button type="button" data-step="maxActive" data-delta="1" aria-label="More downloads at once" data-icon="plus"></button>
+              </div>
             </div>
           </div>
-          <div class="field">
-            <span class="field-text">
-              <span class="field-label" id="activeLabel">Downloads at the same time</span>
-              <span class="field-help">The rest wait in line</span>
-            </span>
-            <div class="stepper" role="group" aria-labelledby="activeLabel">
-              <button type="button" data-step="maxActive" data-delta="-1" aria-label="Fewer downloads at once" data-icon="minus"></button>
-              <output name="maxActive"></output>
-              <button type="button" data-step="maxActive" data-delta="1" aria-label="More downloads at once" data-icon="plus"></button>
+        </section>
+
+        <section class="set-page" data-page="chrome" aria-labelledby="pChrome" hidden>
+          <h3 id="pChrome">Chrome</h3>
+          <p class="set-page-help">How downloads from Chrome reach Downy</p>
+          <div class="card">
+            <div class="field">
+              <span class="field-text">
+                <span class="field-label">Extension</span>
+                <span class="field-help" id="extStatusSettings"></span>
+              </span>
+              <button type="button" class="btn" id="extSetupBtn">Set up</button>
+            </div>
+            <label class="field">
+              <span class="field-text">
+                <span class="field-label">Ask before each download</span>
+                <span class="field-help">A small window to pick the name, the folder and the format first</span>
+              </span>
+              <input type="checkbox" class="switch" name="confirm">
+            </label>
+            <label class="field">
+              <span class="field-text">
+                <span class="field-label">Open Downy when a download starts</span>
+                <span class="field-help">Brings the window up when Chrome sends a download</span>
+              </span>
+              <input type="checkbox" class="switch" name="showOnStart">
+            </label>
+          </div>
+        </section>
+
+        <section class="set-page" data-page="app" aria-labelledby="pApp" hidden>
+          <h3 id="pApp">App</h3>
+          <p class="set-page-help">How Downy starts, closes and tells you things</p>
+          <div class="card">
+            <label class="field">
+              <span class="field-text">
+                <span class="field-label">Keep running in the tray when closed</span>
+                <span class="field-help">Quit from the tray icon</span>
+              </span>
+              <input type="checkbox" class="switch" name="closeToTray">
+            </label>
+            <label class="field">
+              <span class="field-text">
+                <span class="field-label">Start with Windows</span>
+                <span class="field-help" id="loginHelp">Starts in the tray when you sign in</span>
+              </span>
+              <input type="checkbox" class="switch" name="openAtLogin">
+            </label>
+            <label class="field">
+              <span class="field-text">
+                <span class="field-label">Notify me when a download finishes</span>
+              </span>
+              <input type="checkbox" class="switch" name="notify">
+            </label>
+          </div>
+        </section>
+
+        <section class="set-page" data-page="about" aria-labelledby="pAbout" hidden>
+          <h3 id="pAbout">About</h3>
+          <p class="set-page-help">The version, updates and the tools Downy uses for YouTube</p>
+          <div class="card">
+            <div class="field">
+              <span class="field-text">
+                <span class="field-label">Version</span>
+              </span>
+              <span class="field-value" id="appVersion"></span>
+            </div>
+            <div class="field">
+              <span class="field-text">
+                <span class="field-label">Updates</span>
+                <span class="field-help" id="updateStatus"></span>
+              </span>
+              <button type="button" class="btn" id="updateAction">Check now</button>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section class="group" aria-labelledby="gChrome">
-        <h3 class="group-label" id="gChrome">Chrome</h3>
-        <div class="card">
-          <div class="field">
-            <span class="field-text">
-              <span class="field-label">Extension</span>
-              <span class="field-help" id="extStatusSettings"></span>
-            </span>
-            <button type="button" class="btn" id="extSetupBtn">Set up</button>
-          </div>
-          <label class="field">
-            <span class="field-text">
-              <span class="field-label">Ask before each download</span>
-              <span class="field-help">A small window to pick the name, the folder and the format first</span>
-            </span>
-            <input type="checkbox" class="switch" name="confirm">
-          </label>
-          <label class="field">
-            <span class="field-text">
-              <span class="field-label">Open Downy when a download starts</span>
-            </span>
-            <input type="checkbox" class="switch" name="showOnStart">
-          </label>
-        </div>
-      </section>
-
-      <section class="group" aria-labelledby="gApp">
-        <h3 class="group-label" id="gApp">App</h3>
-        <div class="card">
-          <label class="field">
-            <span class="field-text">
-              <span class="field-label">Keep running in the tray when closed</span>
-              <span class="field-help">Quit from the tray icon</span>
-            </span>
-            <input type="checkbox" class="switch" name="closeToTray">
-          </label>
-          <label class="field">
-            <span class="field-text">
-              <span class="field-label">Start with Windows</span>
-              <span class="field-help" id="loginHelp">Starts in the tray when you sign in</span>
-            </span>
-            <input type="checkbox" class="switch" name="openAtLogin">
-          </label>
-          <label class="field">
-            <span class="field-text">
-              <span class="field-label">Notify me when a download finishes</span>
-            </span>
-            <input type="checkbox" class="switch" name="notify">
-          </label>
-          <div class="field">
-            <span class="field-text">
-              <span class="field-label">Updates</span>
-              <span class="field-help" id="updateStatus"></span>
-            </span>
-            <button type="button" class="btn" id="updateAction">Check now</button>
-          </div>
-        </div>
-      </section>
-    </div>
-
-    <div class="sheet-foot">
-      <span class="version" id="appVersion"></span>
-      <span class="tools" id="toolsList"></span>
-      <button type="button" class="btn" id="toolsInstallSettings" hidden>Install tools</button>
+          <h4 class="set-sub">Tools</h4>
+          <div class="card" id="toolsList"></div>
+          <button type="button" class="btn set-tools-btn" id="toolsInstallSettings" hidden>Install tools</button>
+        </section>
+      </div>
     </div>
   </form>
 </dialog>
