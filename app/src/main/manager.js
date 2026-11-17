@@ -12,6 +12,8 @@ const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("
 
 const ACTIVE = new Set(["downloading", "merging", "converting"]);
 const FINISHED = new Set(["done", "error", "cancelled"]);
+// Files that can join a batch: waiting, paused and failed ones.
+const BATCHABLE = new Set(["queued", "paused", "error"]);
 // The queue runs by order: lowest first. Files from older versions use their created time.
 const byOrder = (a, b) => a.order - b.order || a.created - b.created;
 const PROGRESS_RE = /^DOWNY\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$/;
@@ -215,6 +217,7 @@ class Manager extends EventEmitter {
       stream: current ? { role: current.role, index: j.streams.indexOf(current) + 1, count: j.streams.length } : null,
       segments, connections: segments.filter((s) => s.live).length || (rt?.proc ? this.settings.get().connections : 0),
       postProgress: j.postProgress || 0, resumable: j.resumable,
+      batch: j.batch || null, batchIndex: j.batchIndex || 0, batchAt: j.batchAt || 0,
     };
   }
 
@@ -389,9 +392,10 @@ class Manager extends EventEmitter {
 
   // Puts a waiting file in front of beforeId, or at the end of the line when beforeId is empty.
   // The queued files swap their order values among themselves, so files outside the queue keep theirs.
+  // Files in a batch keep the batch's order and can't be moved.
   move(id, beforeId) {
     const j = this.jobs.get(id);
-    if (!j || j.status !== "queued" || id === beforeId) return;
+    if (!j || j.status !== "queued" || j.batch || id === beforeId) return;
     const queue = this.queue();
     const slots = queue.map((x) => x.order);
     const rest = queue.filter((x) => x !== j);
@@ -405,6 +409,69 @@ class Manager extends EventEmitter {
   moveToTop(id) {
     const first = this.queue()[0];
     if (first && first.id !== id) this.move(id, first.id);
+  }
+
+  // ---------------------------------------------------------------- batches
+
+  // A batch runs its files one at a time in its own order, whatever "Downloads at the
+  // same time" says, and a file that fails is skipped. Each file keeps its batch id, its
+  // place in the batch and when the batch was made, so a batch needs nothing else saved.
+  batchJobs(id) {
+    return [...this.jobs.values()].filter((j) => j.batch === id).sort((a, b) => a.batchIndex - b.batchIndex);
+  }
+
+  // Takes waiting, paused and failed files, in the order they have in the queue.
+  // A file that was in another batch moves to the new one. Returns the batch id.
+  startBatch(ids) {
+    const picked = [...new Set([].concat(ids))].map((id) => this.jobs.get(id))
+      .filter((j) => j && BATCHABLE.has(j.status) && !this.runtime.has(j.id))
+      .sort(byOrder);
+    if (!picked.length) throw new Error("Pick waiting, paused or failed files to download one by one");
+    const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const at = Date.now();
+    let order = this.lastOrder();
+    picked.forEach((j, k) => Object.assign(j, { batch: id, batchIndex: k + 1, batchAt: at, status: "queued", error: "", order: ++order }));
+    this.save();
+    this.changed();
+    this.schedule();
+    return id;
+  }
+
+  pauseBatch(id) {
+    for (const j of this.batchJobs(id)) if (j.status === "queued" || j.status === "downloading") this.pause(j.id);
+  }
+
+  // Paused files go back in line in batch order.
+  resumeBatch(id) {
+    for (const j of this.batchJobs(id)) if (j.status === "paused") this.resume(j.id);
+  }
+
+  retryBatch(id) {
+    for (const j of this.batchJobs(id)) if (j.status === "error") this.resume(j.id);
+  }
+
+  cancelBatch(id) {
+    for (const j of this.batchJobs(id)) this.cancel(j.id);
+  }
+
+  // The files stay in the list as ordinary downloads.
+  dismissBatch(id) {
+    for (const j of this.batchJobs(id)) {
+      delete j.batch;
+      delete j.batchIndex;
+      delete j.batchAt;
+    }
+    this.save();
+    this.changed();
+  }
+
+  // Tells main.js once the last file of a batch has ended, so it can send one notification for all of them.
+  batchEnded(id) {
+    const jobs = this.batchJobs(id);
+    if (jobs.some((j) => j.status === "queued" || j.status === "paused" || ACTIVE.has(j.status))) return;
+    const saved = jobs.filter((j) => j.status === "done").length;
+    const failed = jobs.filter((j) => j.status === "error").length;
+    if (saved || failed) this.emit("batch-finished", { id, count: jobs.length, saved, failed });
   }
 
   cancel(id) {
@@ -479,12 +546,21 @@ class Manager extends EventEmitter {
     return [...this.jobs.values()].filter((j) => ACTIVE.has(j.status)).length;
   }
 
+  // A batch takes one slot at most. When the line reaches one of its files, the batch
+  // starts its own next file, the waiting one with the lowest place in the batch.
   schedule() {
     if (this.stopping) return;
     const max = Math.max(1, this.settings.get().maxActive);
+    const busy = new Set([...this.jobs.values()].filter((j) => j.batch && ACTIVE.has(j.status)).map((j) => j.batch));
     for (const j of this.queue()) {
       if (this.activeCount() >= max) break;
-      this.start(j);
+      if (!j.batch) {
+        this.start(j);
+        continue;
+      }
+      if (busy.has(j.batch)) continue;
+      busy.add(j.batch);
+      this.start(this.batchJobs(j.batch).find((x) => x.status === "queued"));
     }
   }
 
@@ -525,6 +601,7 @@ class Manager extends EventEmitter {
       this.save();
       this.changed();
       this.schedule();
+      if (j.batch && !this.stopping) this.batchEnded(j.batch);
     });
   }
 
