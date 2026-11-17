@@ -471,8 +471,9 @@ function pickOrder() {
   return groups().filter((g) => g.flat || !prefs.collapsed.has(g.id)).flatMap((g) => g.items).filter(canPick).map((d) => d.id);
 }
 
-function startSelect() {
-  state.select = { ids: new Set(), anchor: null };
+// From a section's button, that section's files start out picked.
+function startSelect(ids = []) {
+  state.select = { ids: new Set(ids), anchor: null };
   render();
 }
 
@@ -720,7 +721,7 @@ function sectionActions(s) {
       }]);
     }
   } else {
-    if (["paused", "waiting", "failed"].includes(g.key) && pickable.length > 1) a.push(["Download one by one", "list", startSelect]);
+    if (["paused", "waiting", "failed"].includes(g.key) && pickable.length > 1) a.push(["Download one by one", "list", () => startSelect(s.group.items.filter(canPick).map((d) => d.id))]);
     if (g.key === "live" && anyRunning) a.push(["Pause all", "pause", () => call(downy.pauseAll)]);
     if (g.key === "paused" && g.items.length > 1) a.push(["Resume all", "play", () => call(downy.resumeAll)]);
     if (g.key === "waiting" && g.flat) a.push(["Pause all waiting", "pause", () => ids().forEach((id) => call(downy.pause, id).catch(() => {}))]);
