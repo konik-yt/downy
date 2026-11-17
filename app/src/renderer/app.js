@@ -298,9 +298,10 @@ function buildBatches() {
     b.waiting = count((d) => d.status === "queued");
     b.paused = count((d) => d.status === "paused");
     b.live = b.files.filter((d) => LIVE.has(d.status));
+    b.mode = b.files[0].batchMode === "all" ? "all" : "one";
     b.state = b.live.length || b.waiting ? "running" : b.paused ? "paused" : "finished";
     b.label = `Batch of ${b.files.length}`;
-    const next = b.files.find((d) => d.status === "queued");
+    const next = b.mode === "one" && b.files.find((d) => d.status === "queued");
     b.files.forEach((d, k) => state.batchPos.set(d.id, { k: k + 1, n: b.files.length, next: d === next }));
     return b;
   }).sort((x, y) => y.at - x.at);
@@ -355,8 +356,10 @@ function updateCard(c, b, est) {
   const savedBytes = b.files.filter((d) => d.status === "done").reduce((t, d) => t + (d.expected || 0), 0);
   let title, sub;
   if (b.state === "running") {
-    title = `${b.label} files, one at a time`;
-    sub = `Started ${clock(b.at)}. Downloads one file at a time and skips files that fail.`;
+    title = `${b.label} files, ${b.mode === "all" ? "all together" : "one at a time"}`;
+    sub = b.mode === "all"
+      ? `Started ${clock(b.at)}. Downloads ${state.settings?.maxActive || 3} files at once. A file that fails doesn't stop the others.`
+      : `Started ${clock(b.at)}. Downloads one file at a time and skips files that fail.`;
   } else if (b.state === "paused") {
     title = "Batch paused";
     sub = `${b.saved + b.failed + b.cancelled} of ${n} files are through. Resume goes on with the next file.`;
@@ -398,10 +401,11 @@ function updateCard(c, b, est) {
     if (b.failed) nums.push(bigNum(String(b.failed), "failed", "bad"));
     if (b.cancelled) nums.push(chip("wait", `${b.cancelled} cancelled`));
   } else {
-    nums.push(bigNum(String(Math.min(n, b.saved + b.failed + b.cancelled + b.live.length)), `of ${n}`));
+    const through = b.saved + b.failed + b.cancelled;
+    nums.push(b.mode === "all" ? bigNum(String(through), `of ${n} done`) : bigNum(String(Math.min(n, through + b.live.length)), `of ${n}`));
     nums.push(chip("ok", `${b.saved} saved`));
     if (b.failed) nums.push(chip("bad", `${b.failed} failed`));
-    if (b.live.length) nums.push(chip("now", "1 running"));
+    if (b.live.length) nums.push(chip("now", `${b.live.length} running`));
     if (b.paused) nums.push(chip("paused", `${b.paused} paused`));
     if (b.waiting) nums.push(chip("wait", `${b.waiting} waiting`));
     if (b.cancelled) nums.push(chip("wait", `${b.cancelled} cancelled`));
@@ -418,9 +422,10 @@ function updateCard(c, b, est) {
     const cls = d.status === "done" ? "ok" : d.status === "error" ? "bad" : d.status === "cancelled" ? "off" : LIVE.has(d.status) ? "now" : d.status === "paused" ? "held" : "";
     if (block.className !== cls) {
       block.className = cls;
-      block.replaceChildren(...(cls === "now" ? [el("b")] : []));
+      block.replaceChildren(...(cls === "now" || cls === "held" ? [el("b")] : []));
     }
-    if (cls === "now") block.firstChild.style.width = `${Math.round((d.status === "downloading" ? d.progress : 1) * 100)}%`;
+    // A running or paused block fills with that file's own progress.
+    if (cls === "now" || cls === "held") block.firstChild.style.width = `${Math.round((d.status === "downloading" || d.status === "paused" ? d.progress : 1) * 100)}%`;
     block.title = `${k + 1}. ${d.title}`;
   });
   c.strip.setAttribute("aria-label", `${b.saved} of ${n} saved, ${b.failed} failed`);
@@ -504,17 +509,18 @@ function renderSelbar() {
   const sizes = picked.map((d) => d.expected || 0);
   const total = sizes.every(Boolean) && n ? `${size(sizes.reduce((a, b) => a + b, 0))} in all. ` : "";
   $("selSub").textContent = n
-    ? `${total}One at a time, in the order they were added. A file that fails is skipped.`
+    ? `${total}They run as a batch in the order they were added. A file that fails is skipped.`
     : "Click the files to download one by one. Shift click picks a range.";
   $("selBatch").disabled = !n;
-  $("selResume").disabled = !picked.some((d) => d.status === "paused" || d.status === "error");
+  $("selResume").disabled = !n;
 }
 
-async function batchPicked() {
+// mode "one" runs the picked files one at a time, "all" as many at once as the setting allows.
+async function batchPicked(mode) {
   const ids = pickedFiles().map((d) => d.id);
   if (!ids.length) return;
   try {
-    const id = await call(downy.startBatch, ids);
+    const id = await call(downy.startBatch, ids, mode);
     state.select = null;
     state.filter = "all";
     state.folder = null;
@@ -522,11 +528,6 @@ async function batchPicked() {
     render();
     showBatch(id);
   } catch {}
-}
-
-function resumePicked() {
-  for (const d of pickedFiles()) if (d.status === "paused" || d.status === "error") call(downy.resume, d.id).catch(() => {});
-  endSelect();
 }
 
 // The tick box at the start of a row while picking. Clicks on it reach the row's own click handler.
@@ -580,13 +581,16 @@ function estimate() {
   const share = state.speed / running.length;
   const free = live.map((d) => (d.status !== "downloading" ? 0 : d.expected ? left(d) / share : Infinity));
   while (free.length < (state.settings?.maxActive || 1)) free.push(0);
+  // A one-at-a-time batch keeps to one slot. An all-together batch runs like any other files.
+  const serial = (d) => d.batch && d.batchMode !== "all";
   const slotOf = new Map(); // batch id -> the slot its files run in
-  live.forEach((d, k) => d.batch && slotOf.set(d.batch, k));
+  live.forEach((d, k) => serial(d) && slotOf.set(d.batch, k));
+  const until = (id, s) => batches.set(id, Math.max(batches.get(id) ?? 0, s));
   const earliest = () => free.reduce((best, t, k) => (t < free[best] ? k : best), 0);
   const queued = state.downloads.filter((x) => x.status === "queued")
     .sort((a, b) => (a.batch && a.batch === b.batch ? a.batchIndex - b.batchIndex : byOrder(a, b)));
   for (const d of queued) {
-    const k = d.batch && slotOf.has(d.batch) ? slotOf.get(d.batch) : earliest();
+    const k = serial(d) && slotOf.has(d.batch) ? slotOf.get(d.batch) : earliest();
     if (!isFinite(free[k])) {
       if (!d.batch) break;
       batches.set(d.batch, Infinity);
@@ -594,13 +598,11 @@ function estimate() {
     }
     starts.set(d.id, free[k]);
     free[k] += d.expected ? d.expected / share : Infinity;
-    if (d.batch) {
-      slotOf.set(d.batch, k);
-      batches.set(d.batch, free[k]);
-    }
+    if (serial(d)) slotOf.set(d.batch, k);
+    if (d.batch) until(d.batch, free[k]);
   }
-  // A batch whose last file is running ends when that file does.
-  for (const d of live) if (d.batch && !batches.has(d.batch)) batches.set(d.batch, free[live.indexOf(d)]);
+  // A batch ends when its last file does, running or waiting.
+  for (const d of live) if (d.batch) until(d.batch, free[live.indexOf(d)]);
   for (const [id, s] of batches) if (!isFinite(s)) batches.delete(id);
   const done = Math.max(...free);
   return { starts, batches, done: isFinite(done) ? done : null };
@@ -1739,8 +1741,8 @@ function wire() {
     else if (state.select && !document.querySelector("dialog[open]")) endSelect();
   });
   $("selDone").onclick = endSelect;
-  $("selResume").onclick = resumePicked;
-  $("selBatch").onclick = batchPicked;
+  $("selResume").onclick = () => batchPicked("all");
+  $("selBatch").onclick = () => batchPicked("one");
 
   const dialog = $("settings");
   const openSettings = async () => {

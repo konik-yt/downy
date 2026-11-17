@@ -505,7 +505,8 @@ body:has(.main.has-list) { --sky-dim: .62; }
 .strip i.ok { background: linear-gradient(90deg, #7a72ec, #8a7fe8); }
 .strip i.bad { background: var(--rose); }
 .strip i.off { background: #3a2433; }
-.strip i.held { background: #6b5a3c; }
+.strip i.held { background: #2c2733; }
+.strip i.held > b { display: block; height: 100%; width: 0; background: #6b5a3c; }
 .strip i.now > b { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #6f6cf0, #a99fff); box-shadow: 2px 0 0 #e6e2ff; transition: width .45s linear; }
 .strip-legend { display: flex; justify-content: space-between; color: var(--faint); font-size: 11.5px; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .batch-live { display: flex; flex-direction: column; gap: 8px; }
