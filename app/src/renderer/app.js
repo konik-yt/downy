@@ -107,18 +107,23 @@ function makeTabs() {
     b.onclick = () => openTab(t.id);
     return b;
   }));
+  // A count that rolls or a narrower window changes a tab's width, so the highlight follows.
+  const resized = new ResizeObserver(() => placePill($("tabs"), $("tabs").querySelector('.tab[aria-current="page"]')));
+  for (const b of $("tabs").querySelectorAll(".tab")) resized.observe(b);
 }
 
 function renderTabs() {
-  for (const b of $("tabs").children) {
+  const bar = $("tabs");
+  for (const b of bar.querySelectorAll(".tab")) {
     const t = TABS.find((x) => x.id === b.dataset.tab);
     const n = state.downloads.filter(t.test).length;
     const count = b.lastChild;
-    count.textContent = n ? String(n) : "";
+    roll(count, n ? String(n) : "");
     count.className = "n" + (n && t.tone ? " " + t.tone : "");
     if (state.tab === t.id) b.setAttribute("aria-current", "page");
     else b.removeAttribute("aria-current");
   }
+  placePill(bar, bar.querySelector('.tab[aria-current="page"]'));
 }
 
 function openTab(id, folder = null) {
@@ -561,9 +566,13 @@ function renderStatus(view, est) {
   const running = live.length || waiting.length;
   const sig = running ? "pause" : "resume";
   if (act.dataset.sig !== sig) {
+    const changed = !!act.dataset.sig;
     act.dataset.sig = sig;
-    act.innerHTML = icon(running ? "pause" : "play");
-    act.append(running ? "Pause all" : "Resume all");
+    if (!act.querySelector(".lbl")) act.replaceChildren(el("span", "lbl"));
+    act.querySelector(":scope > svg")?.remove();
+    act.insertAdjacentHTML("afterbegin", icon(running ? "pause" : "play"));
+    if (changed) popIcon(act);
+    morph(act.querySelector(".lbl"), running ? "Pause all" : "Resume all");
     act.onclick = () => call(running ? downy.pauseAll : downy.resumeAll);
   }
 
@@ -1433,6 +1442,7 @@ async function getFormats(url) {
   send.classList.add("busy");
   send.dataset.icon = "loader";
   paintIcons(send.parentElement);
+  popIcon(send);
   setHint("Reading formats from YouTube", false, "loader");
   try {
     const res = await downy.formats(url);
@@ -1452,6 +1462,7 @@ async function getFormats(url) {
     send.classList.remove("busy");
     send.dataset.icon = "arrowUp";
     paintIcons(send.parentElement);
+    popIcon(send);
   }
 }
 
@@ -1566,8 +1577,8 @@ function renderSettings() {
   $("welcomeDir").textContent = s.downloadDir;
   $("openFolder").title = `Open the download folder, ${s.downloadDir}`;
   for (const name of ["organize", "confirm", "showOnStart", "closeToTray", "openAtLogin", "notify"]) f.elements[name].checked = !!s[name];
-  f.elements.connections.value = s.connections;
-  f.elements.maxActive.value = s.maxActive;
+  roll(f.elements.connections, s.connections);
+  roll(f.elements.maxActive, s.maxActive);
   for (const b of f.querySelectorAll("[data-step]")) {
     const [lo, hi] = LIMITS[b.dataset.step];
     b.disabled = Number(b.dataset.delta) < 0 ? s[b.dataset.step] <= lo : s[b.dataset.step] >= hi;
@@ -1609,7 +1620,7 @@ function renderUpdate() {
   const action = $("updateAction");
   action.hidden = u.status === "off";
   action.disabled = u.status === "checking" || u.status === "downloading";
-  action.textContent = u.status === "ready" ? "Restart to update" : "Check now";
+  morph(action, u.status === "ready" ? "Restart to update" : "Check now");
   const btn = $("updateBtn");
   btn.hidden = u.status !== "ready";
   $("updateBtnText").textContent = "Restart to update";

@@ -97,16 +97,22 @@ body:has(.main:not([data-view="idle"])) .sky::after { opacity: 1; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14.5px; font-weight: 500; }
 .logo { width: 20px; height: 20px; display: block; image-rendering: auto; }
 .tabs {
-  display: flex; gap: 2px; padding: 3px; border-radius: 11px;
+  position: relative; display: flex; gap: 2px; padding: 3px; border-radius: 11px;
   background: #03030a8c; border: 1px solid var(--line); backdrop-filter: blur(14px);
   -webkit-app-region: no-drag;
 }
 .tab {
-  display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; border: 0;
+  position: relative; z-index: 1; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 14px; border-radius: 8px; border: 0;
   background: transparent; color: var(--muted); font-size: 13px; font-weight: 500; white-space: nowrap;
 }
 .tab:hover { color: var(--text); background: #b4aaff0f; }
-.tab[aria-current="page"] { background: linear-gradient(90deg, #8a7fe852, #6f8cff1f), #0d0b26; box-shadow: var(--s); color: var(--text); }
+.tab[aria-current="page"] { color: var(--text); }
+.tab[aria-current="page"]:hover { background: transparent; }
+/* The highlight under the open tab is one element that slides, see placePill in motion.js. */
+.tabs > .pill {
+  position: absolute; top: 3px; left: 0; height: 28px; border-radius: 8px; pointer-events: none;
+  background: linear-gradient(90deg, #8a7fe852, #6f8cff1f), #0d0b26; box-shadow: var(--s);
+}
 .tab .n { color: var(--faint); font-weight: 400; font-size: 12px; font-variant-numeric: tabular-nums; }
 .tab .n:empty { display: none; }
 .tab .n.live { color: var(--accent-hi); }
@@ -617,8 +623,8 @@ body:has(.main:not([data-view="idle"])) .sky::after { opacity: 1; }
   background: #1a1840; border: 1px solid #ffffff14; position: relative; transition: background .2s;
 }
 .switch::after {
-  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
-  background: #8f8cab; transition: transform .2s var(--ease), background .2s;
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 999px;
+  background: #8f8cab; transition: transform .2s var(--ease), width .2s var(--ease), background .2s;
 }
 .switch:checked {
   background: linear-gradient(90deg, #8a7fe88c, #6f8cff33), #0d0b26;
@@ -723,6 +729,90 @@ body:has(.main:not([data-view="idle"])) .sky::after { opacity: 1; }
   .mini { grid-template-columns: auto minmax(0, 1fr) fit-content(200px) 64px 96px; }
   .part { grid-template-columns: 56px minmax(0, 1fr) minmax(0, 150px) 64px; }
 }
+
+/* ---------------------------------------------------------------- motion */
+
+/* Buttons give under the finger and spring back with a small overshoot when let go. */
+:is(.btn, .icon-btn, .tab, .set-link, .sec-act, .stepper button, .win-btn) {
+  transition-property: scale, background-color, border-color, color, filter;
+  transition-duration: .5s, .15s, .15s, .15s, .15s;
+  transition-timing-function: cubic-bezier(.3, 1.9, .5, 1), ease, ease, ease, ease;
+}
+:is(.btn, .icon-btn, .tab, .set-link, .sec-act, .stepper button):active:not(:disabled) { scale: .94; transition-duration: .08s, .15s, .15s, .15s, .15s; }
+
+/* A pressed switch knob widens toward the side it will go to. After a click it stretches into
+   a pill while it slides, overshoots a little and settles, like a drop of something thick. */
+.switch:active::after { width: 21px; }
+.switch:checked:active::after { transform: translateX(11px); }
+.switch[data-moved]:checked::after { animation: knob-on .46s cubic-bezier(.2, .8, .3, 1); }
+.switch[data-moved]:not(:checked)::after { animation: knob-off .46s cubic-bezier(.2, .8, .3, 1); }
+@keyframes knob-on {
+  0% { transform: translateX(0); width: 16px; height: 16px; top: 2px; }
+  40% { transform: translateX(5px); width: 27px; height: 14px; top: 3px; }
+  75% { transform: translateX(17px); width: 16px; height: 17px; top: 1.5px; }
+  100% { transform: translateX(16px); width: 16px; height: 16px; top: 2px; }
+}
+@keyframes knob-off {
+  0% { transform: translateX(16px); width: 16px; height: 16px; top: 2px; }
+  40% { transform: translateX(2px); width: 27px; height: 14px; top: 3px; }
+  75% { transform: translateX(-1px); width: 16px; height: 17px; top: 1.5px; }
+  100% { transform: translateX(0); width: 16px; height: 16px; top: 2px; }
+}
+
+/* Rolling numbers and letters that blur in, see roll and morph in motion.js. */
+.rolling { display: inline-grid; }
+.rolling > span { grid-area: 1 / 1; }
+.morph-ch { display: inline-block; white-space: pre; }
+
+/* One tooltip that glides from button to button. */
+.tip {
+  position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none;
+  max-width: 320px; padding: 5px 9px; border-radius: 8px; overflow-wrap: anywhere;
+  font-size: 12px; font-weight: 500; color: var(--text);
+  background: #0b0a1ef2; border: 1px solid #b4aaff26; box-shadow: 0 8px 24px -6px #000, inset 0 1px 0 #ffffff12;
+  transform: translateX(-50%) scale(.92); opacity: 0;
+  transition: opacity .14s ease, transform .3s cubic-bezier(.3, 1.6, .5, 1);
+}
+.tip[data-side="above"] { transform-origin: 50% 100%; }
+.tip[data-side="below"] { transform-origin: 50% 0; }
+.tip.on { opacity: 1; transform: translateX(-50%) scale(1); }
+.tip.glide { transition: opacity .14s ease, transform .3s cubic-bezier(.3, 1.6, .5, 1), translate .32s cubic-bezier(.3, 1.25, .5, 1); }
+.tip > span { display: inline-block; }
+
+/* A dragged link lights up a dot grid around the pointer, bigger dots close in. */
+.drop-glow {
+  position: fixed; inset: 0; z-index: 50; pointer-events: none; opacity: 0;
+  background: #05041259; transition: opacity .18s ease;
+}
+.drop-on .drop-glow { opacity: 1; }
+.drop-glow::before, .drop-glow::after { content: ""; position: absolute; inset: 0; }
+.drop-glow::before {
+  background: radial-gradient(circle, #b4aaff 1.1px, #0000 1.6px) 0 0 / 12px 12px;
+  -webkit-mask: radial-gradient(260px circle at var(--x, 50%) var(--y, 50%), #000, #0000 100%);
+  opacity: .8;
+}
+.drop-glow::after {
+  background: radial-gradient(circle, #e6e2ff 2.3px, #0000 2.9px) 0 0 / 12px 12px;
+  -webkit-mask: radial-gradient(90px circle at var(--x, 50%) var(--y, 50%), #000, #0000 100%);
+}
+.drop-hint {
+  position: absolute; left: 50%; top: 50%; display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px; border-radius: 14px; font-size: 15px; font-weight: 600; color: var(--text);
+  background: #0b0a1ee6; border: 1px solid var(--line-accent); box-shadow: 0 20px 60px -10px #000, inset 0 1px 0 #ffffff14;
+  transform: translate(-50%, -50%) scale(.94); transition: transform .4s cubic-bezier(.3, 1.6, .5, 1);
+}
+.drop-on .drop-hint { transform: translate(-50%, -50%) scale(1); }
+.drop-hint .ic { width: 18px; height: 18px; color: var(--accent-hi); animation: nudge 1.1s ease-in-out infinite; }
+@keyframes nudge { 50% { transform: translateY(3px); } }
+
+/* While a file is joined or converted, a shine runs along the filled part of its bar. */
+.segbar.post .seg > b { position: relative; overflow: hidden; }
+.segbar.post .seg > b::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 28%;
+  background: linear-gradient(90deg, #0000, #f1eeffa6, #0000);
+  animation: sweep 1.5s cubic-bezier(.45, 0, .55, 1) infinite;
+}
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(360%); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
