@@ -165,7 +165,7 @@ if (!app.requestSingleInstanceLock()) {
     manager = new Manager({ dataDir, cache, settings });
     cache.prune(manager.infoFiles());
     prompts = new Prompts({
-      manager, cache, icon: icon("icon.png"),
+      manager, cache, settings, icon: icon("icon.png"),
       onStart: (d) => {
         if (settings.get().showOnStart) show(d.id);
       },
