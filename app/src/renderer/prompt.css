@@ -187,3 +187,15 @@ h1, p { margin: 0; }
 .foot { display: flex; gap: 8px; }
 .go { flex: 1; }
 .tip { color: var(--faint); font-size: 12px; text-align: center; margin-top: -6px; }
+
+/* Buttons give under the finger and spring back with a small overshoot, as in the main window. */
+:is(.btn, .x, .rm, .opt, .pick, .link) {
+  transition-property: scale, background-color, border-color, color, filter;
+  transition-duration: .5s, .15s, .15s, .15s, .15s;
+  transition-timing-function: cubic-bezier(.3, 1.9, .5, 1), ease, ease, ease, ease;
+}
+:is(.btn, .x, .rm, .opt, .pick):active:not(:disabled) { scale: .95; transition-duration: .08s, .15s, .15s, .15s, .15s; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
