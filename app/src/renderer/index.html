@@ -32,6 +32,8 @@
 <div class="shell">
   <nav class="sidebar" aria-label="Downloads">
     <div class="nav-group" id="filters"></div>
+    <div class="nav-head" id="batchHead" hidden>Batches</div>
+    <div class="nav-group" id="batchNav"></div>
     <div class="nav-head">Folders</div>
     <div class="nav-group" id="folders"></div>
     <div class="nav-foot">
@@ -62,6 +64,13 @@
         <div class="list" id="list"></div>
         <p class="list-empty" id="listEmpty" hidden></p>
       </section>
+    </div>
+
+    <div class="selbar" id="selbar" role="region" aria-label="Picked files" hidden>
+      <span class="sel-note"><span class="sel-n" id="selCount" aria-live="polite"></span><span class="sel-sub" id="selSub"></span></span>
+      <button type="button" class="btn ghost" id="selDone">Cancel</button>
+      <button type="button" class="btn" id="selResume" data-icon="zap">Download all together</button>
+      <button type="button" class="btn primary" id="selBatch" data-icon="list">Download one by one</button>
     </div>
   </main>
 </div>

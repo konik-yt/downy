@@ -165,7 +165,7 @@ if (!app.requestSingleInstanceLock()) {
     manager = new Manager({ dataDir, cache, settings });
     cache.prune(manager.infoFiles());
     prompts = new Prompts({
-      manager, cache, icon: icon("icon.png"),
+      manager, cache, settings, icon: icon("icon.png"),
       onStart: (d) => {
         if (settings.get().showOnStart) show(d.id);
       },
@@ -188,8 +188,9 @@ if (!app.requestSingleInstanceLock()) {
       win?.webContents.send("downloads", list);
       updateTray(list);
     });
+    // Files in a batch get one notification when the batch ends, not one each.
     manager.on("finished", (d) => {
-      if (!settings.get().notify || !Notification.isSupported()) return;
+      if (d.batch || !settings.get().notify || !Notification.isSupported()) return;
       // A folder the user picked outside the download folder ("Other") goes by its own name.
       const where = d.dir === "Other" ? path.basename(path.dirname(d.filepath)) : (d.dir || d.folder).replace(/\//g, " / ");
       const n = new Notification({ title: "Download saved", body: `${d.title}\nSaved to ${where}`, icon: path.join(ASSETS, "icon.png") });
@@ -197,9 +198,16 @@ if (!app.requestSingleInstanceLock()) {
       n.show();
     });
     manager.on("failed", (d) => {
-      if (!settings.get().notify || !Notification.isSupported()) return;
+      if (d.batch || !settings.get().notify || !Notification.isSupported()) return;
       const n = new Notification({ title: "Download failed", body: `${d.title}\n${d.error}`, icon: path.join(ASSETS, "icon.png") });
       n.on("click", () => show(d.id));
+      n.show();
+    });
+    manager.on("batch-finished", (b) => {
+      if (!settings.get().notify || !Notification.isSupported()) return;
+      const body = [`${b.saved} saved`, b.failed ? `${b.failed} failed` : ""].filter(Boolean).join(", ");
+      const n = new Notification({ title: `Batch of ${b.count} finished`, body, icon: path.join(ASSETS, "icon.png") });
+      n.on("click", () => show(manager.batchJobs(b.id)[0]?.id));
       n.show();
     });
     settings.on("change", () => {
@@ -315,6 +323,12 @@ if (!app.requestSingleInstanceLock()) {
   handle("remove", (ids) => manager.remove(Array.isArray(ids) ? ids.map(String) : String(ids)));
   handle("move", (id, beforeId) => manager.move(String(id), beforeId ? String(beforeId) : null));
   handle("move-to-top", (id) => manager.moveToTop(String(id)));
+  handle("batch:start", (ids, mode) => manager.startBatch((Array.isArray(ids) ? ids : [ids]).map(String), mode === "all" ? "all" : "one"));
+  handle("batch:pause", (id) => manager.pauseBatch(String(id)));
+  handle("batch:resume", (id) => manager.resumeBatch(String(id)));
+  handle("batch:retry", (id) => manager.retryBatch(String(id)));
+  handle("batch:cancel", (id) => manager.cancelBatch(String(id)));
+  handle("batch:dismiss", (id) => manager.dismissBatch(String(id)));
   handle("clear", (scope) => manager.clearFinished(scope));
   handle("open-file", (id) => {
     const j = manager.get(id);
