@@ -11,6 +11,9 @@
   --line: #ffffff12;
   --line-accent: #b4aaff1f;
   --track: #16143a;
+  /* The glass button of the send button: a light at the top, a purple glow at the bottom. */
+  --glow-fill: radial-gradient(100% 60% at 50% 0%, #ffffff1f, #0000 70%), linear-gradient(150deg, #8a7fe880, #6f8cff26 60%, #4a3cc426), #0d0b26;
+  --glow-edge: inset 0 1px 0 #ffffff26, inset 0 -8px 14px -10px #a99fffcc, 0 0 0 1px #b4aaff33;
   --font: -apple-system, BlinkMacSystemFont, "Inter Variable", "Segoe UI", system-ui, sans-serif;
   color-scheme: dark;
 }
@@ -68,8 +71,8 @@ button { cursor: default; }
   border: 1px solid var(--line); background: #03030a8c; color: var(--text-soft); font-size: 13px; white-space: nowrap; flex: none;
 }
 .btn:hover { border-color: var(--line-accent); color: var(--text); background: #0d0b26; }
-.btn.primary { border-color: #0000; background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: #fff; font-weight: 600; padding: 0 16px 0 13px; }
-.btn.primary:hover { background: linear-gradient(90deg, #948df0, #6a80ee); }
+.btn.primary { border-color: #0000; background: var(--glow-fill); box-shadow: var(--glow-edge); color: #fff; font-weight: 600; padding: 0 16px 0 13px; }
+.btn.primary:hover { border-color: #0000; background: var(--glow-fill); filter: brightness(1.2); }
 .btn:disabled { opacity: .55; pointer-events: none; }
 
 .error { margin: 4px 14px 0; color: var(--rose-hi); font-size: 13px; }
