@@ -43,9 +43,11 @@ if (!app.requestSingleInstanceLock()) {
   app.on("web-contents-created", (_e, contents) => lockDown(contents));
 
   function createWindow() {
+    // For testing: DOWNY_WINDOW_SIZE=960x700 opens the window at another size.
+    const [w, h] = (DEV && /^\d+x\d+$/.test(process.env.DOWNY_WINDOW_SIZE || "") ? process.env.DOWNY_WINDOW_SIZE : "1180x760").split("x").map(Number);
     win = new BrowserWindow({
-      width: 1180,
-      height: 760,
+      width: w,
+      height: h,
       minWidth: 820,
       minHeight: 540,
       show: false,

@@ -137,12 +137,13 @@ class Prompts {
     win.once("ready-to-show", () => {
       win.show();
       win.focus();
-      // For testing, like the main window: a screenshot, then a script to run in the window.
+      // For testing, like the main window: a script to run in the window, then a screenshot.
       if (!app.isPackaged && process.env.DOWNY_SCREENSHOT) {
         setTimeout(async () => {
+          if (process.env.DOWNY_PROMPT_EVAL) await win.webContents.executeJavaScript(process.env.DOWNY_PROMPT_EVAL).catch(() => {});
+          await new Promise((r) => setTimeout(r, 600));
           const img = await win.webContents.capturePage();
           require("fs").writeFileSync(`${process.env.DOWNY_SCREENSHOT}-prompt-${box.entries[0]?.id}.png`, img.toPNG());
-          if (process.env.DOWNY_PROMPT_EVAL) win.webContents.executeJavaScript(process.env.DOWNY_PROMPT_EVAL);
         }, 1200);
       }
     });
