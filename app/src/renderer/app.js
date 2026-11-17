@@ -11,16 +11,21 @@ const state = {
   filter: "all",
   folder: null,
   picker: null, // { url, info }
-  rows: new Map(),
+  rows: new Map(), // row parts by download id
+  secs: new Map(), // list sections by id
+  speed: 0, // smoothed total download speed in bytes per second
+  refocus: null, // the element to focus again after a keyboard move
 };
 
-const RUNNING = new Set(["downloading", "merging", "converting", "queued"]);
+const LIVE = new Set(["downloading", "merging", "converting"]);
+const FAILED = new Set(["error", "cancelled"]);
 const FILTERS = [
   { id: "all", label: "All downloads", icon: "layers", test: () => true },
-  { id: "running", label: "Running", icon: "activity", test: (d) => RUNNING.has(d.status) },
+  { id: "active", label: "Active", icon: "activity", test: (d) => LIVE.has(d.status) },
+  { id: "waiting", label: "Waiting", icon: "hourglass", test: (d) => d.status === "queued" },
   { id: "paused", label: "Paused", icon: "pauseCircle", test: (d) => d.status === "paused" },
   { id: "done", label: "Finished", icon: "check", test: (d) => d.status === "done" },
-  { id: "failed", label: "Failed", icon: "alert", test: (d) => d.status === "error" || d.status === "cancelled" },
+  { id: "failed", label: "Failed", icon: "alert", test: (d) => FAILED.has(d.status) },
 ];
 
 // ---------------------------------------------------------------- helpers
@@ -43,18 +48,6 @@ function eta(s) {
   const m = Math.round(s / 60); // round once, so 59.6 min becomes 1 h, not 60 min
   if (m < 60) return `${m} min left`;
   return `${Math.floor(m / 60)} h ${m % 60} min left`;
-}
-
-function when(ts) {
-  if (!ts) return "";
-  const d = new Date(ts);
-  const today = new Date();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (d.toDateString() === today.toDateString()) return `Today at ${time}`;
-  const y = new Date(today);
-  y.setDate(today.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return `Yesterday at ${time}`;
-  return d.toLocaleDateString([], { day: "numeric", month: "short", year: d.getFullYear() === today.getFullYear() ? undefined : "numeric" });
 }
 
 function el(tag, cls, text) {
@@ -97,7 +90,8 @@ function renderSidebar() {
     const b = el("button", "nav-item");
     b.innerHTML = icon(f.icon);
     b.append(el("span", "", f.label));
-    const c = el("span", "count" + (f.id === "running" && counts[f.id] ? " live" : ""), counts[f.id] ? String(counts[f.id]) : "");
+    const tone = !counts[f.id] ? "" : f.id === "active" ? " live" : f.id === "failed" ? " bad" : "";
+    const c = el("span", "count" + tone, counts[f.id] ? String(counts[f.id]) : "");
     b.append(c);
     if (!state.folder && state.filter === f.id) b.setAttribute("aria-current", "true");
     b.onclick = () => {
@@ -186,40 +180,221 @@ const folderLabel = (key) => {
   return g ? `${g} ${key.slice(g.length + 1)}` : key;
 };
 
-// Unfinished downloads stay on top, newest first within each group.
-const rank = (d) => (d.status === "downloading" || d.status === "merging" || d.status === "converting" ? 0 : d.status === "queued" ? 1 : d.status === "paused" ? 2 : 3);
+const isToday = (ts) => !!ts && new Date(ts).toDateString() === new Date().toDateString();
+const byOrder = (a, b) => (a.order ?? a.created) - (b.order ?? b.created) || a.created - b.created;
+const newest = (a, b) => (b.finished || b.created) - (a.finished || a.created);
+// Running and paused files keep the full row with the segment bar. Everything else gets a 44px row.
+const isFull = (d) => LIVE.has(d.status) || d.status === "paused";
 
-function visible() {
-  let items;
-  if (state.folder) {
-    items = state.downloads.filter((d) => d.status === "done" && (folderOf(d) === state.folder || folderOf(d).startsWith(state.folder + "/")));
+// The sections of All downloads, top to bottom. Empty ones are left out.
+const SECTIONS = [
+  { key: "live", label: "Downloading", test: (d) => LIVE.has(d.status), sort: byOrder },
+  { key: "failed", label: "Failed", tone: "bad", test: (d) => FAILED.has(d.status), sort: newest },
+  { key: "paused", label: "Paused", test: (d) => d.status === "paused", sort: newest },
+  { key: "waiting", label: "Waiting", test: (d) => d.status === "queued", sort: byOrder },
+  { key: "today", label: "Finished today", test: (d) => d.status === "done" && isToday(d.finished), sort: newest },
+  { key: "earlier", label: "Earlier", test: (d) => d.status === "done" && !isToday(d.finished), sort: newest },
+];
+// What a filter in the sidebar shows as its one flat section.
+const FILTER_KEYS = { all: null, active: "live", waiting: "waiting", paused: "paused", done: "done", failed: "failed" };
+
+// A section with more than CAP_OVER rows shows CAP_SHOW of them until the user asks for the rest.
+const CAP_OVER = 12;
+const CAP_SHOW = 8;
+
+// Collapsed sections and opened "Show more" rows stay that way across restarts.
+const prefs = (() => {
+  try {
+    const p = JSON.parse(localStorage.getItem("downy.list") || "{}");
+    return { collapsed: new Set(p.collapsed || []), expanded: new Set(p.expanded || []) };
+  } catch {
+    return { collapsed: new Set(), expanded: new Set() };
   }
-  else items = state.downloads.filter(FILTERS.find((x) => x.id === state.filter).test);
-  return items.sort((a, b) => rank(a) - rank(b) || b.created - a.created);
+})();
+
+function savePrefs() {
+  try {
+    localStorage.setItem("downy.list", JSON.stringify({ collapsed: [...prefs.collapsed], expanded: [...prefs.expanded] }));
+  } catch {}
 }
 
-function renderListHead(items) {
-  const f = FILTERS.find((x) => x.id === state.filter);
-  const title = state.folder ? `${folderLabel(state.folder)} folder` : f.label;
-  $("listTitle").textContent = title;
-  $("crumbPage").textContent = state.folder ? folderLabel(state.folder) : f.label;
-  $("listCount").textContent = items.length ? String(items.length) : "";
-  const actions = [];
-  const btn = (label, ic, fn) => {
-    const b = el("button", "btn");
+function groups() {
+  if (state.folder) {
+    const items = state.downloads.filter((d) => d.status === "done" && (folderOf(d) === state.folder || folderOf(d).startsWith(state.folder + "/")));
+    return items.length ? [{ id: "folder", key: "folder", flat: true, compact: true, label: folderLabel(state.folder), items: items.sort(newest) }] : [];
+  }
+  if (state.filter !== "all") {
+    const f = FILTERS.find((x) => x.id === state.filter);
+    const key = FILTER_KEYS[f.id];
+    const items = state.downloads.filter(f.test).sort(key === "live" || key === "waiting" ? byOrder : newest);
+    return items.length ? [{ id: `filter-${f.id}`, key, flat: true, compact: key !== "live" && key !== "paused", label: f.label, items }] : [];
+  }
+  return SECTIONS.map((s) => ({ ...s, id: s.key, compact: s.key !== "live" && s.key !== "paused", items: state.downloads.filter(s.test).sort(s.sort) }))
+    .filter((g) => g.items.length);
+}
+
+// ------------------------------------------------------------ estimates
+
+const left = (d) => Math.max(0, (d.expected || 0) - (d.downloaded || 0));
+
+// The total download speed, smoothed so the time estimates don't jump with every update.
+function trackSpeed() {
+  const running = state.downloads.filter((d) => d.status === "downloading");
+  const now = running.reduce((n, d) => n + (d.speed || 0), 0);
+  state.speed = !running.length ? 0 : state.speed ? state.speed * 0.8 + now * 0.2 : now;
+}
+
+// When each waiting file should start and when the whole line should be done. Each running
+// file gets an even share of the current speed, and a waiting file takes the first slot to
+// free up. A file with no known size stops the estimate there.
+function estimate() {
+  const live = state.downloads.filter((d) => LIVE.has(d.status));
+  const running = live.filter((d) => d.status === "downloading");
+  const starts = new Map();
+  if (!state.speed || !running.length) return { starts, done: null };
+  const share = state.speed / running.length;
+  const free = live.map((d) => (d.status !== "downloading" ? 0 : d.expected ? left(d) / share : Infinity));
+  while (free.length < (state.settings?.maxActive || 1)) free.push(0);
+  for (const d of state.downloads.filter((x) => x.status === "queued").sort(byOrder)) {
+    free.sort((a, b) => a - b);
+    if (!isFinite(free[0])) break;
+    starts.set(d.id, free[0]);
+    free[0] += d.expected ? d.expected / share : Infinity;
+  }
+  const done = Math.max(...free);
+  return { starts, done: isFinite(done) ? done : null };
+}
+
+// "11 min" or "1 h 5 min" or "40 s".
+function span(s) {
+  s = Math.round(s);
+  if (s < 60) return `${Math.max(1, s)} s`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+// Rounded so it does not tick every second: "in a moment", "in 30 s", "in 4 min".
+function startsIn(s) {
+  if (s < 10) return "in a moment";
+  if (s < 60) return `in ${Math.round(s / 10) * 10} s`;
+  return `in ${span(s)}`;
+}
+
+const suffix = (n) => (n % 100 >= 11 && n % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+const place = (n) => (n === 1 ? "Next in line" : `${n}${suffix(n)} in line`);
+
+// The time column of a finished row: the time today, then "Yesterday", then the date.
+function shortWhen(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isToday(ts)) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], { day: "numeric", month: "short", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+}
+
+// ------------------------------------------------------------- sections
+
+function toggleSection(id) {
+  if (prefs.collapsed.has(id)) prefs.collapsed.delete(id);
+  else prefs.collapsed.add(id);
+  savePrefs();
+  render();
+}
+
+function makeSection(g) {
+  const s = { el: el("section", "sec"), group: g, actsSig: null };
+  s.el.dataset.sec = g.id;
+  const head = el("div", "sec-head");
+  s.title = el(g.flat ? "h2" : "button", g.flat ? "sec-title" : "sec-toggle");
+  if (!g.flat) {
+    s.title.type = "button";
+    s.title.innerHTML = icon("chevron");
+    s.title.onclick = () => toggleSection(s.group.id);
+  }
+  s.label = el("span");
+  s.count = el("span", "sec-count");
+  s.title.append(s.label, " ", s.count);
+  s.meta = el("span", "sec-meta");
+  s.acts = el("span", "sec-acts");
+  head.append(s.title, el("span", "sec-line"), s.meta, s.acts);
+  s.body = el("div", "sec-body");
+  s.rows = g.compact ? el("div", "stack") : s.body;
+  if (g.compact) s.body.append(s.rows);
+  s.rows.setAttribute("role", "list");
+  s.rows.setAttribute("aria-label", g.label);
+  s.more = el("button", "more");
+  s.more.type = "button";
+  s.more.onclick = () => {
+    const id = s.group.id;
+    if (prefs.expanded.has(id)) prefs.expanded.delete(id);
+    else prefs.expanded.add(id);
+    savePrefs();
+    render();
+  };
+  s.el.append(head, s.body);
+  return s;
+}
+
+function sectionMeta(g, est) {
+  const sizes = g.items.map((d) => d.expected || 0);
+  const known = sizes.every(Boolean);
+  const total = sizes.reduce((a, b) => a + b, 0);
+  if (g.key === "waiting") {
+    const parts = [];
+    if (known && total) parts.push(size(total));
+    if (est.done != null) parts.push(`all done in about ${span(est.done)}`);
+    return parts.join(", ");
+  }
+  if (g.key === "today" || g.key === "earlier" || g.key === "done" || g.key === "folder") return total ? size(total) : "";
+  return "";
+}
+
+// Buttons in a section header. They read the section's current items when clicked.
+function sectionActions(s) {
+  const g = s.group;
+  const a = [];
+  const ids = () => s.group.items.map((d) => d.id);
+  const anyRunning = state.downloads.some((d) => d.status === "downloading" || d.status === "queued");
+  const errors = g.items.filter((d) => d.status === "error").length;
+  if (g.key === "live" && anyRunning) a.push(["Pause all", "pause", () => call(downy.pauseAll)]);
+  if (g.key === "paused" && g.items.length > 1) a.push(["Resume all", "play", () => call(downy.resumeAll)]);
+  if (g.key === "waiting" && g.flat) a.push(["Pause all waiting", "pause", () => ids().forEach((id) => call(downy.pause, id).catch(() => {}))]);
+  if (g.key === "failed" && errors) {
+    a.push([errors > 1 ? "Retry all" : "Retry", "retry", () => s.group.items.filter((d) => d.status === "error").forEach((d) => call(downy.resume, d.id).catch(() => {}))]);
+  }
+  if (g.key === "folder" && state.folder !== "Other") a.push(["Open folder", "folder", () => call(downy.openFolder, state.folder)]);
+  if (["failed", "today", "earlier", "done", "folder"].includes(g.key)) a.push(["Clear from list", "trash", () => call(downy.remove, ids())]);
+  const sig = a.map((x) => x[0]).join("|");
+  if (sig === s.actsSig) return;
+  s.actsSig = sig;
+  s.acts.replaceChildren(...a.map(([label, ic, fn]) => {
+    const b = el("button", "sec-act");
+    b.type = "button";
     b.innerHTML = icon(ic);
     b.append(label);
     b.onclick = fn;
-    actions.push(b);
-  };
-  if (state.downloads.some((d) => d.status === "downloading" || d.status === "queued")) btn("Pause all", "pause", () => call(downy.pauseAll));
-  if (state.downloads.some((d) => d.status === "paused")) btn("Resume all", "play", () => call(downy.resumeAll));
-  if (state.folder && state.folder !== "Other") btn("Open folder", "folder", () => call(downy.openFolder, state.folder));
-  if ((state.filter === "done" || state.filter === "failed") && !state.folder && items.length) {
-    btn("Clear from list", "trash", () => call(downy.clear, state.filter));
-  }
-  $("listActions").replaceChildren(...actions);
+    return b;
+  }));
 }
+
+function updateSection(s, g, est) {
+  s.group = g;
+  if (g.tone) s.el.dataset.tone = g.tone;
+  s.label.textContent = g.label;
+  s.count.textContent = String(g.items.length);
+  const collapsed = !g.flat && prefs.collapsed.has(g.id);
+  s.el.classList.toggle("collapsed", collapsed);
+  if (!g.flat) s.title.setAttribute("aria-expanded", String(!collapsed));
+  const meta = sectionMeta(g, est);
+  if (s.meta.textContent !== meta) s.meta.textContent = meta;
+  s.meta.hidden = !meta;
+  sectionActions(s);
+  return collapsed;
+}
+
+// ------------------------------------------------------------------ render
 
 function render() {
   const has = state.downloads.length > 0;
@@ -227,71 +402,165 @@ function render() {
   $("listWrap").hidden = !has;
   renderSidebar();
   if (!has) return;
-  const items = visible();
-  renderListHead(items);
+  const f = FILTERS.find((x) => x.id === state.filter);
+  $("crumbPage").textContent = state.folder ? folderLabel(state.folder) : f.label;
+
+  const est = estimate();
+  const gs = groups();
   const list = $("list");
-  const keep = new Set(items.map((d) => d.id));
-  for (const [id, row] of state.rows) {
-    if (!keep.has(id)) {
-      row.el.remove();
-      state.rows.delete(id);
+  const seenRows = new Set();
+  const seenSecs = new Set();
+  let prevSec = null;
+  for (const g of gs) {
+    let s = state.secs.get(g.id);
+    if (!s) {
+      s = makeSection(g);
+      state.secs.set(g.id, s);
     }
+    seenSecs.add(g.id);
+    const want = prevSec ? prevSec.nextSibling : list.firstChild;
+    if (want !== s.el) list.insertBefore(s.el, want);
+    prevSec = s.el;
+    if (updateSection(s, g, est)) continue;
+
+    // A filter is where you go to see every row, so only the sections of All downloads get cut short.
+    const long = !g.flat && g.items.length > CAP_OVER;
+    const capped = long && !prefs.expanded.has(g.id);
+    const shown = capped ? g.items.slice(0, CAP_SHOW) : g.items;
+    // While a row is being dragged, its section keeps the order the user is making.
+    const frozen = drag && drag.container === s.rows;
+    let prev = null;
+    shown.forEach((d, k) => {
+      const kind = isFull(d) ? "full" : "mini";
+      let r = state.rows.get(d.id);
+      if (r && r.kind !== kind) {
+        r.el.remove();
+        r = null;
+      }
+      if (!r) {
+        r = kind === "full" ? makeRow(d) : makeMini(d);
+        state.rows.set(d.id, r);
+      }
+      if (kind === "full") updateRow(r, d);
+      else updateMini(r, d, { place: k + 1, start: est.starts.get(d.id) });
+      seenRows.add(d.id);
+      if (!frozen || !r.el.isConnected) {
+        const at = prev ? prev.nextSibling : s.rows.firstChild;
+        if (at !== r.el) s.rows.insertBefore(r.el, at);
+      }
+      prev = r.el;
+    });
+    s.rows.dataset.firstHidden = capped ? g.items[CAP_SHOW].id : "";
+    if (long) {
+      s.more.innerHTML = icon("chevron");
+      s.more.classList.toggle("open", !capped);
+      s.more.append(capped ? `Show ${g.items.length - CAP_SHOW} more` : "Show fewer");
+      if (s.rows.lastChild !== s.more) s.rows.append(s.more);
+    } else s.more.remove();
   }
-  let prev = null;
-  for (const d of items) {
-    let row = state.rows.get(d.id);
-    if (!row) {
-      row = makeRow(d);
-      state.rows.set(d.id, row);
-    }
-    updateRow(row, d);
-    const want = prev ? prev.nextSibling : list.firstChild;
-    if (want !== row.el) list.insertBefore(row.el, want);
-    prev = row.el;
+  for (const [id, s] of state.secs) {
+    if (seenSecs.has(id)) continue;
+    s.el.remove();
+    state.secs.delete(id);
   }
+  for (const [id, r] of state.rows) {
+    if (seenRows.has(id)) continue;
+    r.el.remove();
+    state.rows.delete(id);
+  }
+
   const empty = $("listEmpty");
-  empty.hidden = items.length > 0;
-  if (!items.length) {
+  empty.hidden = gs.length > 0;
+  if (!gs.length) {
     empty.textContent = state.folder
       ? "Nothing in this folder yet."
-      : { running: "Nothing is downloading right now.", paused: "No paused downloads.", done: "No finished downloads yet.", failed: "No failed downloads." }[state.filter] || "No downloads yet.";
+      : { active: "Nothing is downloading right now.", waiting: "Nothing is waiting in line.", paused: "No paused downloads.", done: "No finished downloads yet.", failed: "No failed downloads." }[state.filter] || "No downloads yet.";
+  }
+  // A row that moved in the list loses focus, so a keyboard move gives it back.
+  if (state.refocus) {
+    if (state.refocus.isConnected && document.activeElement !== state.refocus) state.refocus.focus({ preventScroll: true });
+    state.refocus = null;
   }
 }
 
+// ---------------------------------------------------------------- rows
+
+// Fills a thumbnail box: the video's picture, a file tile with its extension,
+// or a tile with an icon when a video has no picture.
+function paintThumb(box, d, mini) {
+  box.replaceChildren();
+  box.className = mini ? "mini-thumb" : "thumb";
+  const ext = (d.ext || "file").toUpperCase().slice(0, mini ? 4 : 6);
+  const blank = () => {
+    box.classList.add("blank");
+    box.insertAdjacentHTML("afterbegin", icon(d.kind === "mp3" || d.kind === "m4a" ? "music" : "video"));
+  };
+  if (d.kind === "file") {
+    box.classList.add("file");
+    if (mini) box.textContent = ext;
+    else {
+      const fi = el("span", "file-icon");
+      fi.innerHTML = icon("file");
+      box.append(fi);
+    }
+  } else if (d.thumbnail) {
+    const img = el("img");
+    img.alt = "";
+    img.loading = "lazy";
+    img.referrerPolicy = "no-referrer";
+    img.onerror = () => {
+      img.remove();
+      blank();
+    };
+    img.src = d.thumbnail;
+    box.append(img);
+  } else blank();
+  if (!mini) box.append(el("span", "kind", d.kind === "file" ? ext : d.folder || ""));
+}
+
 function makeRow(d) {
-  const r = { el: el("article", "row") };
+  const r = { kind: "full", el: el("article", "row") };
   r.el.setAttribute("role", "listitem");
   r.el.dataset.id = d.id;
   r.thumb = el("div", "thumb");
-  r.img = el("img");
-  r.img.alt = "";
-  r.img.loading = "lazy";
-  r.img.referrerPolicy = "no-referrer";
-  r.img.onerror = () => (r.img.style.visibility = "hidden");
-  r.kind = el("span", "kind");
-  r.thumb.append(r.img, r.kind);
-
   r.body = el("div", "row-body");
   r.title = el("h3", "row-title");
   r.meta = el("div", "row-meta");
   r.bar = el("div", "segbar");
-  r.foot = el("div", "row-foot");
-  r.body.append(r.title, r.meta, r.bar, r.foot);
-
+  r.body.append(r.title, r.meta, r.bar);
   r.side = el("div", "row-side");
   r.rate = el("div", "rate");
   r.actions = el("div", "actions");
   r.side.append(r.rate, r.actions);
   r.el.append(r.thumb, r.body, r.side);
-  r.el.addEventListener("dblclick", () => {
-    const cur = state.downloads.find((x) => x.id === d.id);
-    if (cur?.status === "done") call(downy.openFile, d.id);
+  return r;
+}
+
+function makeMini(d) {
+  const r = { kind: "mini", el: el("div", "mini") };
+  r.el.setAttribute("role", "listitem");
+  r.el.dataset.id = d.id;
+  r.lead = el("span", "lead");
+  r.thumb = el("div", "mini-thumb");
+  r.title = el("p", "mini-title");
+  r.state = el("div", "mini-state");
+  r.size = el("span", "mini-size");
+  r.end = el("div", "mini-end");
+  r.when = el("span", "mini-when");
+  r.actions = el("div", "actions");
+  r.end.append(r.when, r.actions);
+  r.el.append(r.lead, r.thumb, r.title, r.state, r.size, r.end);
+  r.el.addEventListener("dblclick", (e) => {
+    if (r.el.dataset.status === "done" && !e.target.closest("button")) call(downy.openFile, d.id);
   });
+  r.el.addEventListener("keydown", (e) => queueKeys(e, r));
+  wireDrag(r);
   return r;
 }
 
 function actionButton(label, ic, fn, cls = "") {
   const b = el("button", "icon-btn " + cls);
+  b.type = "button";
   b.innerHTML = icon(ic);
   b.title = label;
   b.setAttribute("aria-label", label);
@@ -312,25 +581,22 @@ function statusLine(d) {
     case "converting": return ["music", d.kind === "mp3" ? `Converting to MP3 ${Math.round(d.postProgress * 100)}%` : "Saving M4A file"];
     case "done": return ["check", `Saved to ${savedIn(d)}`];
     case "cancelled": return ["x", "Cancelled"];
-    case "error": return ["alert", "Download failed"];
+    case "error": return ["alert", d.error || "Download failed"];
   }
   return ["loader", d.status];
 }
 
+const thumbSig = (d) => [d.kind, d.thumbnail, d.ext, d.folder].join("|");
+
 function updateRow(r, d) {
-  const sig = [d.status, d.thumbnail, d.title, d.folder].join("|");
   r.el.dataset.status = d.status;
+  if (r.thumbSig !== thumbSig(d)) {
+    r.thumbSig = thumbSig(d);
+    paintThumb(r.thumb, d, false);
+  }
+  const sig = [d.status, d.title].join("|");
   if (r.sig !== sig) {
     r.sig = sig;
-    if (d.thumbnail && r.img.src !== d.thumbnail) r.img.src = d.thumbnail;
-    r.thumb.classList.toggle("file", d.kind === "file");
-    r.img.hidden = d.kind === "file";
-    if (d.kind === "file" && !r.fileIcon) {
-      r.fileIcon = el("span", "file-icon");
-      r.fileIcon.innerHTML = icon("file");
-      r.thumb.prepend(r.fileIcon);
-    }
-    r.kind.textContent = d.kind === "file" ? (d.ext || "file").toUpperCase().slice(0, 6) : d.folder || "";
     r.title.textContent = d.title;
     r.title.title = d.title;
     renderActions(r, d);
@@ -342,31 +608,16 @@ function updateRow(r, d) {
   st.innerHTML = icon(ic);
   st.append(text);
   meta.push(st);
+  const soft = (t) => meta.push(el("span", "soft", t));
   if (d.status === "paused" && d.expected) meta.push(el("span", "", `${size(d.downloaded)} of ${size(d.expected)}`));
-  if (d.status === "done" && d.expected) meta.push(el("span", "", size(d.expected)));
-  if (d.status === "done") meta.push(el("span", "", when(d.finished)));
-  if (d.status === "error") meta.push(el("span", "bad", d.error));
-  r.meta.replaceChildren(...meta);
-
-  // segment bar
-  const showBar = ["downloading", "paused", "queued", "merging", "converting"].includes(d.status);
-  r.bar.hidden = !showBar;
-  if (showBar) renderBar(r, d);
-
-  const foot = [];
+  if (d.status === "paused" && !(d.kind === "file" && d.resumable === false)) soft("Resumes where it stopped");
   if (d.status === "downloading") {
-    if (d.connections) foot.push(el("span", "", `${d.connections} ${d.connections === 1 ? "connection" : "connections"}`));
-    if (d.stream && d.stream.count > 1) foot.push(el("span", "", d.stream.role === "audio" ? `Audio, part ${d.stream.index} of ${d.stream.count}` : `Video, part ${d.stream.index} of ${d.stream.count}`));
-    foot.push(el("span", "", `${Math.floor(d.progress * 100)}%`));
-  } else if (d.status === "paused") {
-    foot.push(el("span", "", d.kind === "file" && d.resumable === false
-      ? "Resume downloads the file again from the start"
-      : "Resume continues from here, even after a restart"));
-  } else if (d.status === "done" && d.filename) {
-    foot.push(el("span", "", d.filename));
+    if (d.connections) soft(`${d.connections} ${d.connections === 1 ? "connection" : "connections"}`);
+    if (d.stream && d.stream.count > 1) soft(d.stream.role === "audio" ? `Audio, part ${d.stream.index} of ${d.stream.count}` : `Video, part ${d.stream.index} of ${d.stream.count}`);
+    soft(`${Math.floor(d.progress * 100)}%`);
   }
-  r.foot.replaceChildren(...foot);
-  r.foot.hidden = !foot.length;
+  r.meta.replaceChildren(...meta);
+  renderBar(r, d);
 
   const rate = [];
   if (d.status === "downloading") {
@@ -377,40 +628,78 @@ function updateRow(r, d) {
   r.rate.hidden = !rate.length;
 }
 
-function renderBar(r, d) {
-  const post = d.status === "merging" || d.status === "converting";
-  r.bar.classList.toggle("post", post);
-  r.bar.classList.toggle("paused", d.status === "paused" || d.status === "queued");
-  const segs = post ? [{ s: 0, e: 1, p: d.postProgress || 0, live: true }]
-    : d.segments.length ? d.segments : [{ s: 0, e: 1, p: d.progress, live: false }];
-  if (r.bar.children.length !== segs.length) {
-    r.bar.replaceChildren(...segs.map(() => {
-      const i = el("i", "seg");
-      i.append(el("b"));
-      return i;
-    }));
+// ctx.place is the row's place in its section, ctx.start the seconds until a waiting file starts.
+function updateMini(r, d, ctx) {
+  r.el.dataset.status = d.status;
+  r.el.draggable = d.status === "queued";
+  if (r.thumbSig !== thumbSig(d)) {
+    r.thumbSig = thumbSig(d);
+    paintThumb(r.thumb, d, true);
   }
-  segs.forEach((s, idx) => {
-    const node = r.bar.children[idx];
-    node.style.left = `${s.s * 100}%`;
-    node.style.width = `${(s.e - s.s) * 100}%`;
-    const span = s.e - s.s || 1;
-    const fill = Math.max(0, Math.min(1, (s.p - s.s) / span));
-    node.firstChild.style.width = `${fill * 100}%`;
-    node.classList.toggle("live", !!s.live && d.status === "downloading");
-    node.classList.toggle("full", fill >= 1);
-  });
-  r.bar.setAttribute("role", "progressbar");
-  r.bar.setAttribute("aria-valuemin", "0");
-  r.bar.setAttribute("aria-valuemax", "100");
-  r.bar.setAttribute("aria-valuenow", String(Math.round((post ? d.postProgress : d.progress) * 100)));
-  r.bar.setAttribute("aria-label", `${d.title} progress`);
+  const sig = [d.status, d.title].join("|");
+  if (r.sig !== sig) {
+    r.sig = sig;
+    r.title.textContent = d.title;
+    r.title.title = d.title;
+    r.lead.replaceChildren();
+    if (d.status === "queued") {
+      const grip = el("button", "grip");
+      grip.type = "button";
+      grip.innerHTML = icon("grip");
+      grip.title = "Drag to change the order. With the keyboard, press Alt with the up or down arrow.";
+      grip.setAttribute("aria-label", "Change the order");
+      r.lead.append(grip);
+    }
+    renderActions(r, d);
+    r.stateKey = null;
+  }
+
+  let key;
+  if (d.status === "queued") key = `q|${ctx.place}`;
+  else if (d.status === "done") key = `d|${savedIn(d)}`;
+  else key = `${d.status}|${d.error}`;
+  if (r.stateKey !== key) {
+    r.stateKey = key;
+    if (d.status === "queued") setPlace(r, ctx.place);
+    else {
+      const [ic, text] = statusLine(d);
+      r.state.innerHTML = icon(ic);
+      r.state.append(el("span", "", text));
+      r.state.title = d.status === "error" ? text : "";
+    }
+  }
+
+  const sz = d.status === "error" || d.status === "cancelled" ? "" : d.expected ? size(d.expected) : "";
+  if (r.size.textContent !== sz) r.size.textContent = sz;
+  r.size.hidden = d.status === "error" || d.status === "cancelled";
+  let when = "";
+  if (d.status === "done") when = shortWhen(d.finished);
+  else if (d.status === "queued" && ctx.start != null) when = startsIn(ctx.start);
+  if (r.when.textContent !== when) {
+    r.when.textContent = when;
+    r.when.title = d.status === "queued" && when ? `Starts ${when.replace(/^in /, "in about ")} at the current speed` : "";
+  }
+}
+
+// Shows a waiting row's place in line. Only the next file gets a chip.
+function setPlace(r, n) {
+  const p = el("span", "pos" + (n === 1 ? " next" : ""), place(n));
+  r.state.replaceChildren(p);
+  r.state.title = "";
+  const top = r.actions.querySelector("[data-act=top]");
+  if (top) top.hidden = n === 1;
 }
 
 function renderActions(r, d) {
   const a = [];
   const id = d.id;
-  if (d.status === "downloading" || d.status === "queued") {
+  if (d.status === "queued") {
+    const top = actionButton("Move to top", "toTop", () => call(downy.moveToTop, id));
+    top.dataset.act = "top";
+    a.push(top);
+    a.push(actionButton("Pause", "pause", () => call(downy.pause, id)));
+    a.push(actionButton("Cancel download", "x", () => call(downy.cancel, id), "danger"));
+  } else if (d.status === "downloading") {
     a.push(actionButton("Pause", "pause", () => call(downy.pause, id)));
     a.push(actionButton("Cancel download", "x", () => call(downy.cancel, id), "danger"));
   } else if (d.status === "paused") {
@@ -427,6 +716,99 @@ function renderActions(r, d) {
     a.push(actionButton("Remove from list", "trash", () => call(downy.remove, id), "danger"));
   }
   r.actions.replaceChildren(...a);
+}
+
+function renderBar(r, d) {
+  const showBar = ["downloading", "paused", "queued", "merging", "converting"].includes(d.status);
+  r.bar.hidden = !showBar;
+  if (!showBar) return;
+  const post = d.status === "merging" || d.status === "converting";
+  r.bar.classList.toggle("post", post);
+  r.bar.classList.toggle("paused", d.status === "paused" || d.status === "queued");
+  const segs = post ? [{ s: 0, e: 1, p: d.postProgress || 0, live: true }]
+    : d.segments.length ? d.segments : [{ s: 0, e: 1, p: d.progress, live: false }];
+  if (r.bar.children.length !== segs.length) {
+    r.bar.replaceChildren(...segs.map(() => {
+      const i = el("i", "seg");
+      i.append(el("b"));
+      return i;
+    }));
+  }
+  segs.forEach((s, idx) => {
+    const node = r.bar.children[idx];
+    node.style.left = `${s.s * 100}%`;
+    node.style.width = `${(s.e - s.s) * 100}%`;
+    const width = s.e - s.s || 1;
+    const fill = Math.max(0, Math.min(1, (s.p - s.s) / width));
+    node.firstChild.style.width = `${fill * 100}%`;
+    node.classList.toggle("live", !!s.live && d.status === "downloading");
+    node.classList.toggle("full", fill >= 1);
+  });
+  r.bar.setAttribute("role", "progressbar");
+  r.bar.setAttribute("aria-valuemin", "0");
+  r.bar.setAttribute("aria-valuemax", "100");
+  r.bar.setAttribute("aria-valuenow", String(Math.round((post ? d.postProgress : d.progress) * 100)));
+  r.bar.setAttribute("aria-label", `${d.title} progress`);
+}
+
+// ------------------------------------------------------- queue reordering
+
+// The row being dragged: { id, el, container, before } where before is the id it started in front of.
+let drag = null;
+
+const nextRow = (row) => {
+  let n = row.nextElementSibling;
+  while (n && !n.classList.contains("mini")) n = n.nextElementSibling;
+  return n;
+};
+// The id a row sits in front of. After the last shown row of a long section, that is the first hidden one.
+const beforeOf = (row) => nextRow(row)?.dataset.id || row.parentElement?.dataset.firstHidden || null;
+
+function wireDrag(r) {
+  r.el.addEventListener("dragstart", (e) => {
+    if (r.el.dataset.status !== "queued") return e.preventDefault();
+    drag = { id: r.el.dataset.id, el: r.el, container: r.el.parentElement, before: beforeOf(r.el) };
+    r.el.classList.add("lifted");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("application/x-downy-row", drag.id);
+  });
+  r.el.addEventListener("dragover", (e) => {
+    if (!drag || r.el === drag.el || r.el.parentElement !== drag.container || r.el.dataset.status !== "queued") return;
+    e.preventDefault();
+    const box = r.el.getBoundingClientRect();
+    const target = e.clientY < box.top + box.height / 2 ? r.el : r.el.nextElementSibling;
+    if (target === drag.el || target === drag.el.nextElementSibling) return;
+    drag.container.insertBefore(drag.el, target);
+    // Places follow the new order while the row moves.
+    [...drag.container.querySelectorAll(".mini[data-status=queued]")].forEach((row, k) => {
+      const rr = state.rows.get(row.dataset.id);
+      if (rr) {
+        setPlace(rr, k + 1);
+        rr.stateKey = null;
+      }
+    });
+  });
+  r.el.addEventListener("dragend", () => {
+    const d = drag;
+    drag = null;
+    if (!d) return;
+    d.el.classList.remove("lifted");
+    const before = beforeOf(d.el);
+    if (before === d.before) return render();
+    call(downy.move, d.id, before).catch(() => {}).finally(render);
+  });
+}
+
+// Alt with the up or down arrow moves a waiting file one place.
+function queueKeys(e, r) {
+  if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown") || r.el.dataset.status !== "queued") return;
+  e.preventDefault();
+  const q = state.downloads.filter((d) => d.status === "queued").sort(byOrder);
+  const i = q.findIndex((d) => d.id === r.el.dataset.id);
+  if (i < 0 || (e.key === "ArrowUp" && i === 0) || (e.key === "ArrowDown" && i === q.length - 1)) return;
+  const before = e.key === "ArrowUp" ? q[i - 1] : q[i + 2];
+  state.refocus = document.activeElement;
+  call(downy.move, r.el.dataset.id, before ? before.id : null).catch(() => {});
 }
 
 // --------------------------------------------------------------- composer
@@ -566,8 +948,24 @@ async function startDownload(option) {
   } catch {}
 }
 
+// Opens the section that holds a download, so a new or focused download is never hidden.
+function reveal(id) {
+  const g = groups().find((x) => x.items.some((d) => d.id === id));
+  if (!g) return;
+  let changed = prefs.collapsed.delete(g.id);
+  if (!g.flat && g.items.findIndex((d) => d.id === id) >= CAP_SHOW && g.items.length > CAP_OVER && !prefs.expanded.has(g.id)) {
+    prefs.expanded.add(g.id);
+    changed = true;
+  }
+  if (changed) {
+    savePrefs();
+    render();
+  }
+}
+
 function flash(id) {
   const tryFlash = (n) => {
+    reveal(id);
     const row = state.rows.get(id);
     if (!row) return n > 0 && setTimeout(() => tryFlash(n - 1), 150);
     row.el.classList.remove("flash");
@@ -923,6 +1321,7 @@ function wire() {
 
   downy.onDownloads((list) => {
     state.downloads = list;
+    trackSpeed();
     render();
   });
   downy.onSettings((s) => {
@@ -963,6 +1362,7 @@ function wire() {
     $("maxBtn").dataset.icon = "restore";
     paintIcons($("maxBtn").parentElement);
   }
+  trackSpeed();
   render();
   renderSettings();
   renderExtension();
