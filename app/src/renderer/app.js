@@ -15,6 +15,7 @@ const state = {
   secs: new Map(), // list sections by id
   speed: 0, // smoothed total download speed in bytes per second
   refocus: null, // the element to focus again after a keyboard move
+  run: null, // { ids, started, result }: the files that ran since the line was last empty
 };
 
 const LIVE = new Set(["downloading", "merging", "converting"]);
@@ -401,6 +402,7 @@ function render() {
   $("main").classList.toggle("has-list", has);
   $("listWrap").hidden = !has;
   renderSidebar();
+  renderSummary();
   if (!has) return;
   const f = FILTERS.find((x) => x.id === state.filter);
   $("crumbPage").textContent = state.folder ? folderLabel(state.folder) : f.label;
@@ -481,6 +483,78 @@ function render() {
     if (state.refocus.isConnected && document.activeElement !== state.refocus) state.refocus.focus({ preventScroll: true });
     state.refocus = null;
   }
+}
+
+// ------------------------------------------------------- title bar summary
+
+// While files run or wait, one line sums them up. When the line empties, it says how the
+// run went, and keeps saying it until the next download starts.
+function renderSummary() {
+  const box = $("tbSummary");
+  const live = state.downloads.filter((d) => LIVE.has(d.status));
+  const waiting = state.downloads.filter((d) => d.status === "queued");
+  if (live.length || waiting.length) {
+    if (!state.run || state.run.result) state.run = { ids: new Set(), started: Date.now(), result: null };
+    for (const d of [...live, ...waiting]) state.run.ids.add(d.id);
+    const files = state.downloads.filter((d) => state.run.ids.has(d.id) && d.expected);
+    const total = files.reduce((n, d) => n + d.expected, 0);
+    const got = files.reduce((n, d) => n + (d.status === "done" ? d.expected : Math.min(d.downloaded || 0, d.expected)), 0);
+    const parts = [];
+    const est = estimate();
+    if (waiting.length) parts.push(`${waiting.length} waiting`);
+    if (state.speed) parts.push(`${size(state.speed)}/s`);
+    if (est.done != null) parts.push(`about ${span(est.done)} left`);
+    const bar = el("span", "tb-mini");
+    const fill = el("b");
+    fill.style.width = `${total ? Math.round((got / total) * 100) : 0}%`;
+    bar.append(fill);
+    const text = el("span");
+    if (live.length) {
+      text.append(el("b", "", `${live.length} downloading`));
+      if (parts.length) text.append(", " + parts.join(", "));
+    } else text.append(parts.join(", "));
+    box.className = "tb-summary";
+    box.replaceChildren(bar, text);
+    box.title = live.length ? "Show active downloads" : "Show waiting downloads";
+    box.onclick = () => openFilter(live.length ? "active" : "waiting");
+    box.hidden = false;
+    return;
+  }
+  if (state.run && !state.run.result) state.run.result = runResult(state.run);
+  const res = state.run?.result;
+  if (!res) {
+    box.hidden = true;
+    return;
+  }
+  box.className = "tb-summary" + (res.saved ? "" : " failed");
+  box.innerHTML = icon(res.saved ? "check" : "alert");
+  const text = el("span", "", res.saved ? "All done. " : "");
+  if (res.saved) text.append(el("span", "ok", `${res.saved} saved`));
+  if (res.failed) {
+    if (res.saved) text.append(", ");
+    text.append(el("span", "bad", `${res.failed} failed`));
+  }
+  if (res.bytes) text.append(`, ${size(res.bytes)} in ${span(res.took / 1000)}`);
+  box.append(text);
+  box.title = res.failed ? "Show failed downloads" : "Show finished downloads";
+  box.onclick = () => openFilter(res.failed ? "failed" : "done");
+  box.hidden = false;
+}
+
+// How a run ended. A run the user paused or cancelled has nothing to report.
+function runResult(run) {
+  const files = state.downloads.filter((d) => run.ids.has(d.id));
+  if (files.some((d) => d.status === "paused")) return null;
+  const done = files.filter((d) => d.status === "done");
+  const failed = files.filter((d) => d.status === "error").length;
+  if (!done.length && !failed) return null;
+  return { saved: done.length, failed, bytes: done.reduce((n, d) => n + (d.expected || 0), 0), took: Date.now() - run.started };
+}
+
+function openFilter(id) {
+  state.filter = id;
+  state.folder = null;
+  render();
 }
 
 // ---------------------------------------------------------------- rows

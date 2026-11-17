@@ -93,6 +93,27 @@ body:has(.main.has-list) { --sky-dim: .62; }
 .crumb-app { color: var(--muted); }
 .crumb-sep { color: var(--faint); }
 .crumb-page { color: var(--text); font-weight: 500; }
+/* One line for everything at once: what runs, how fast and how long. After a run, how it went. */
+.tb-summary {
+  display: flex; align-items: center; gap: 10px; min-width: 0; margin-left: 8px; padding: 0 8px 0 16px; height: 26px;
+  border: 0; border-left: 1px solid var(--line); border-radius: 0; background: transparent;
+  color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+.tb-summary:hover { color: var(--text-soft); }
+.tb-summary > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.tb-summary b { color: var(--text-soft); font-weight: 500; }
+.tb-summary .ok { color: var(--mint); font-weight: 500; }
+.tb-summary .bad { color: var(--rose-hi); font-weight: 500; }
+.tb-summary > .ic { width: 14px; height: 14px; color: var(--mint); }
+.tb-summary.failed > .ic { color: var(--rose-hi); }
+.tb-mini { position: relative; width: 96px; height: 8px; border-radius: 2px; background: #1d1a4a; overflow: hidden; flex: none; }
+.tb-mini > b { display: block; height: 100%; background: linear-gradient(90deg, #6f6cf0, #a99fff); box-shadow: 2px 0 0 #e6e2ff; transition: width .45s linear; }
+.tb-mini::after {
+  content: ""; position: absolute; inset: 0;
+  background-image: var(--g); background-size: 3px 3px; background-position: right bottom;
+}
+.crumbs { min-width: 0; }
 .tb-actions { display: flex; align-items: center; height: 100%; -webkit-app-region: no-drag; }
 .tb-gap { width: 12px; }
 .tb-update {
@@ -607,6 +628,7 @@ body:has(.main.has-list) { --sky-dim: .62; }
 
 @media (max-width: 960px) {
   .sidebar { width: 200px; }
+  .tb-mini { display: none; }
   .row { grid-template-columns: 96px minmax(0, 1fr); }
   .thumb { width: 96px; }
   .mini, .mini[data-status="error"], .mini[data-status="cancelled"] { grid-template-columns: 16px 40px minmax(0, 1fr) minmax(0, 150px) 96px; }
