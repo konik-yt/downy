@@ -265,7 +265,9 @@ function groups(view) {
       { id: "run-failed", key: "run-failed", items: runFailed() },
     ].filter((g) => g.items.length);
   }
-  const today = state.downloads.filter((d) => d.status === "done" && isToday(d.finished)).sort(newest);
+  // A file shows once: files of a batch still on screen stay in the batch.
+  const inShown = new Set(shown.map((b) => b.id));
+  const today = state.downloads.filter((d) => d.status === "done" && isToday(d.finished) && !inShown.has(d.batch)).sort(newest);
   return [
     ...shown.map(batchGroup),
     { id: "run-failed", key: "run-failed", label: "Didn't finish", items: runFailed() },
