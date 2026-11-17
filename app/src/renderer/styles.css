@@ -5,9 +5,9 @@
   --text: #f1f0ff;
   --text-soft: #d9d6f2;
   --muted: #a6a3c0;
-  --faint: #6f6c8c;
+  --faint: #8784a6;
   --accent: #8a7fe8;
-  --accent-2: #6f8cff;
+  --accent-2: #5b74e6;
   --accent-hi: #b4aaff;
   --accent-ink: #e6e2ff;
   --rose: #e0648f;
@@ -101,7 +101,7 @@ body:has(.main.has-list) { --sky-dim: .62; }
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
 .tb-update .ic { width: 14px; height: 14px; }
-.tb-update:hover { background: linear-gradient(90deg, #948df0, #7f9bff); }
+.tb-update:hover { background: linear-gradient(90deg, #948df0, #6a80ee); }
 .tb-btn {
   width: 32px; height: 30px; border-radius: 8px; border: 0; background: transparent; color: var(--muted);
   display: grid; place-items: center;
@@ -430,7 +430,7 @@ body:has(.main.has-list) { --sky-dim: .62; }
 .btn.ghost { border-color: #0000; background: transparent; color: var(--muted); }
 .btn.ghost:hover { color: var(--text); background: #b4aaff14; }
 .btn.primary { padding: 8px 16px; border-color: #0000; background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: #fff; font-weight: 600; }
-.btn.primary:hover { border-color: #0000; background: linear-gradient(90deg, #948df0, #7f9bff); color: #fff; }
+.btn.primary:hover { border-color: #0000; background: linear-gradient(90deg, #948df0, #6a80ee); color: #fff; }
 .field-help.path { color: var(--text-soft); word-break: break-all; user-select: text; }
 
 .switch {
