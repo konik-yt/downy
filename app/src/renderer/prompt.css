@@ -3,9 +3,9 @@
   --text: #f1f0ff;
   --text-soft: #d9d6f2;
   --muted: #a6a3c0;
-  --faint: #6f6c8c;
+  --faint: #8784a6;
   --accent: #8a7fe8;
-  --accent-2: #6f8cff;
+  --accent-2: #5b74e6;
   --accent-hi: #b4aaff;
   --rose-hi: #ff9ebf;
   --line: #ffffff12;
@@ -69,7 +69,7 @@ button { cursor: default; }
 }
 .btn:hover { border-color: var(--line-accent); color: var(--text); background: #0d0b26; }
 .btn.primary { border-color: #0000; background: linear-gradient(90deg, var(--accent), var(--accent-2)); color: #fff; font-weight: 600; padding: 0 16px 0 13px; }
-.btn.primary:hover { background: linear-gradient(90deg, #948df0, #7f9bff); }
+.btn.primary:hover { background: linear-gradient(90deg, #948df0, #6a80ee); }
 .btn:disabled { opacity: .55; pointer-events: none; }
 
 .error { margin: 4px 14px 0; color: var(--rose-hi); font-size: 13px; }

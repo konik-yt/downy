@@ -166,3 +166,80 @@ test("pause, cancel and clear work on downloads that are not running", (t) => {
   m.clearFinished("failed");
   assert.deepEqual(m.list(), []);
 });
+
+// ----------------------------------------------------------------- queue order
+
+// Queued rows as an older Downy saved them, with no order field.
+const queuedRows = (n) => Array.from({ length: n }, (_, k) => ({
+  id: `q${k + 1}`, title: `file ${k + 1}`, kind: "file", source: "web", status: "queued",
+  mode: "segmented", streams: [], downloaded: 0, expected: 100, created: 1000 + k,
+}));
+
+// Records which jobs schedule() starts instead of downloading anything.
+function recordStarts(m) {
+  const started = [];
+  m.start = (j) => {
+    j.status = "downloading";
+    started.push(j.id);
+  };
+  return started;
+}
+
+test("rows without an order take their created time, so the queue keeps its old order", (t) => {
+  const { m } = manager(t, { saved: queuedRows(3).reverse(), settings: { maxActive: 1 } });
+  const started = recordStarts(m);
+  m.schedule();
+  assert.deepEqual(started, ["q1"]);
+  assert.deepEqual(m.list().map((d) => d.order).sort(), [1000, 1001, 1002]);
+});
+
+test("move puts a waiting file in front of another and schedule follows the new order", (t) => {
+  const { m } = manager(t, { saved: queuedRows(4), settings: { maxActive: 1 } });
+  m.move("q4", "q2");
+  assert.deepEqual(m.queue().map((j) => j.id), ["q1", "q4", "q2", "q3"]);
+  m.move("q1", null);
+  assert.deepEqual(m.queue().map((j) => j.id), ["q4", "q2", "q3", "q1"]);
+  m.moveToTop("q3");
+  assert.deepEqual(m.queue().map((j) => j.id), ["q3", "q4", "q2", "q1"]);
+  // The queue reuses its own order values, so nothing drifts.
+  assert.deepEqual(m.queue().map((j) => j.order), [1000, 1001, 1002, 1003]);
+  const started = recordStarts(m);
+  m.schedule();
+  assert.deepEqual(started, ["q3"]);
+});
+
+test("move ignores files that are not waiting", (t) => {
+  const rows = queuedRows(3);
+  rows[2].status = "paused";
+  const { m } = manager(t, { saved: rows });
+  m.move("q3", "q1");
+  m.moveToTop("q3");
+  assert.deepEqual(m.queue().map((j) => j.id), ["q1", "q2"]);
+});
+
+test("a new or resumed file joins the end of the line", (t) => {
+  const rows = queuedRows(3);
+  rows[0].status = "paused";
+  const { m } = manager(t, { saved: rows });
+  m.start = () => {}; // keep everything waiting
+  m.resume("q1");
+  assert.deepEqual(m.queue().map((j) => j.id), ["q2", "q3", "q1"]);
+});
+
+test("remove takes a list of ids", (t) => {
+  const rows = queuedRows(3).map((r) => ({ ...r, status: "done" }));
+  const { m, dataDir } = manager(t, { saved: rows });
+  m.remove(["q1", "q3"]);
+  assert.deepEqual(m.list().map((d) => d.id), ["q2"]);
+  assert.deepEqual(savedRows(dataDir).map((r) => r.id), ["q2"]);
+});
+
+test("files that were running when Downy restarts come back at the front of the line", async (t) => {
+  const { m } = manager(t, { saved: queuedRows(4) });
+  for (const id of ["q3", "q4"]) {
+    m.get(id).status = "downloading";
+    m.runtime.set(id, { ctrl: new AbortController(), proc: null, done: Promise.resolve() });
+  }
+  await m.shutdown({ resume: true });
+  assert.deepEqual(m.queue().map((j) => j.id), ["q3", "q4", "q1", "q2"]);
+});
