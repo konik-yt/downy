@@ -243,3 +243,94 @@ test("files that were running when Downy restarts come back at the front of the 
   await m.shutdown({ resume: true });
   assert.deepEqual(m.queue().map((j) => j.id), ["q3", "q4", "q1", "q2"]);
 });
+
+// ---------------------------------------------------------------------- batches
+
+test("a batch runs one file at a time in queue order and leaves the other slots to other files", (t) => {
+  const rows = queuedRows(5).map((r) => ({ ...r, status: "paused" }));
+  const { m } = manager(t, { saved: rows, settings: { maxActive: 3 } });
+  const started = recordStarts(m);
+  // Picked in any order, the batch keeps the order the files had in the queue.
+  const id = m.startBatch(["q3", "q1", "q2", "nope"]);
+  assert.deepEqual(m.batchJobs(id).map((j) => [j.id, j.batchIndex]), [["q1", 1], ["q2", 2], ["q3", 3]]);
+  assert.deepEqual(started, ["q1"]);
+  m.resume("q4");
+  m.resume("q5");
+  assert.deepEqual(started, ["q1", "q4", "q5"]);
+  // A batch file can't be moved around in the line.
+  m.move("q3", "q2");
+  assert.deepEqual(m.batchJobs(id).map((j) => j.id), ["q1", "q2", "q3"]);
+});
+
+test("a failed file in a batch is skipped and the batch goes on with the next one", (t) => {
+  const rows = queuedRows(3).map((r) => ({ ...r, status: "paused" }));
+  const { m } = manager(t, { saved: rows, settings: { maxActive: 1 } });
+  const started = recordStarts(m);
+  const ended = [];
+  m.on("batch-finished", (b) => ended.push(b));
+  const id = m.startBatch(["q1", "q2", "q3"]);
+  for (const [k, status] of [[0, "done"], [1, "error"], [2, "done"]]) {
+    const j = m.batchJobs(id)[k];
+    j.status = status;
+    m.schedule();
+    m.batchEnded(id);
+  }
+  assert.deepEqual(started, ["q1", "q2", "q3"]);
+  assert.deepEqual(ended, [{ id, count: 3, saved: 2, failed: 1 }]);
+
+  // Retry failed puts only the failed file back.
+  m.retryBatch(id);
+  assert.deepEqual(started, ["q1", "q2", "q3", "q2"]);
+});
+
+test("pause, resume, cancel and dismiss act on the whole batch", (t) => {
+  const rows = queuedRows(4).map((r) => ({ ...r, status: "paused" }));
+  const { m } = manager(t, { saved: rows, settings: { maxActive: 1 } });
+  m.start = () => {}; // keep everything waiting
+  const id = m.startBatch(["q1", "q2", "q3"]);
+  m.pauseBatch(id);
+  assert.deepEqual(m.batchJobs(id).map((j) => j.status), ["paused", "paused", "paused"]);
+  m.resumeBatch(id);
+  assert.deepEqual(m.queue().map((j) => j.id), ["q1", "q2", "q3"]);
+  m.cancelBatch(id);
+  assert.deepEqual(m.batchJobs(id).map((j) => j.status), ["cancelled", "cancelled", "cancelled"]);
+  assert.equal(m.get("q4").status, "paused");
+  m.dismissBatch(id);
+  assert.deepEqual(m.batchJobs(id), []);
+  assert.equal(m.list().find((d) => d.id === "q1").batch, null);
+});
+
+test("startBatch only takes waiting, paused and failed files", (t) => {
+  const rows = queuedRows(3);
+  rows[0].status = "done";
+  rows[1].status = "cancelled";
+  rows[2].status = "error";
+  const { m } = manager(t, { saved: rows });
+  recordStarts(m);
+  assert.throws(() => m.startBatch(["q1", "q2"]), /Pick waiting, paused or failed files/);
+  const id = m.startBatch(["q1", "q2", "q3"]);
+  assert.deepEqual(m.batchJobs(id).map((j) => j.id), ["q3"]);
+});
+
+test("a batch downloads real files one by one and reports what failed", async (t) => {
+  const { base } = await fileServer(t, { "/a.bin": { body: randomBytes(300 * 1024) }, "/c.bin": { body: randomBytes(200 * 1024) } });
+  const row = (id, file, order) => ({
+    id, title: file, filename: file, kind: "file", source: "web", ext: "bin", status: "paused", mode: "segmented",
+    streams: [{ role: "file", formatId: "", ext: "bin", protocol: "http", url: `${base}/${file}`, headers: {}, size: 0, path: "", segments: null, index: 0 }],
+    downloaded: 0, expected: 0, created: order, order,
+  });
+  const { m } = manager(t, { saved: [row("a", "a.bin", 1), row("b", "missing.bin", 2), row("c", "c.bin", 3)], settings: { maxActive: 3 } });
+  // Each file starts only when nothing else is running.
+  const start = m.start.bind(m);
+  const busyAtStart = [];
+  m.start = (j) => {
+    busyAtStart.push(m.activeCount());
+    start(j);
+  };
+  const ended = once(m, "batch-finished");
+  const id = m.startBatch(["a", "b", "c"]);
+  const [summary] = await ended;
+  assert.deepEqual(summary, { id, count: 3, saved: 2, failed: 1 });
+  assert.deepEqual(busyAtStart, [0, 0, 0]);
+  assert.deepEqual(m.batchJobs(id).map((j) => j.status), ["done", "error", "done"]);
+});
