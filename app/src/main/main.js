@@ -323,7 +323,7 @@ if (!app.requestSingleInstanceLock()) {
   handle("remove", (ids) => manager.remove(Array.isArray(ids) ? ids.map(String) : String(ids)));
   handle("move", (id, beforeId) => manager.move(String(id), beforeId ? String(beforeId) : null));
   handle("move-to-top", (id) => manager.moveToTop(String(id)));
-  handle("batch:start", (ids) => manager.startBatch((Array.isArray(ids) ? ids : [ids]).map(String)));
+  handle("batch:start", (ids, mode) => manager.startBatch((Array.isArray(ids) ? ids : [ids]).map(String), mode === "all" ? "all" : "one"));
   handle("batch:pause", (id) => manager.pauseBatch(String(id)));
   handle("batch:resume", (id) => manager.resumeBatch(String(id)));
   handle("batch:retry", (id) => manager.retryBatch(String(id)));
