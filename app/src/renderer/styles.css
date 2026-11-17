@@ -196,6 +196,10 @@ body:has(.main.has-list) { --sky-dim: .62; }
 
 .composer {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "in in" "hint send" "pick pick";
+  align-items: center;
   width: min(100%, 760px);
   margin: 0 auto;
   padding: 14px 14px 12px 18px;
@@ -206,15 +210,17 @@ body:has(.main.has-list) { --sky-dim: .62; }
   user-select: text;
 }
 .composer input {
+  grid-area: in;
   width: 100%; border: 0; outline: 0; background: transparent; padding: 4px 0 18px;
   font-size: 16px; color: var(--text);
 }
 .composer input::placeholder { color: #8f8cab; }
-.composer-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.hint { display: flex; align-items: center; gap: 8px; color: var(--faint); font-size: 13px; }
+.composer-ic { grid-area: ic; display: none; color: var(--muted); }
+.hint { grid-area: hint; display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--faint); font-size: 13px; }
 .hint .ic { width: 15px; height: 15px; }
 .hint.bad { color: var(--rose-hi); }
 .send {
+  grid-area: send;
   width: 36px; height: 36px; border-radius: 50%; border: 0; flex: none; display: grid; place-items: center;
   color: var(--text);
   --k: #8a7fe880, #6f8cff26 60%, #4a3cc426; --kg: #a99fffcc; --kr: #b4aaff33;
@@ -229,11 +235,40 @@ body:has(.main.has-list) { --sky-dim: .62; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .main.has-list .hero { display: none; }
-.main.has-list .composer { width: 100%; max-width: none; margin-top: 4px; position: sticky; top: 4px; z-index: 3; }
-.main.has-list .composer input { padding-bottom: 10px; }
+
+/* With a list, the composer is one line above the scroll area, and the hint
+   only shows while the box has focus or while it reports something. */
+.main.has-list { overflow: hidden; padding-bottom: 0; scrollbar-gutter: auto; }
+.main.has-list .composer {
+  flex: none; width: 100%; max-width: none; margin-top: 4px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "ic in send" "hint hint hint" "pick pick pick";
+  column-gap: 12px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 16px;
+  transition: box-shadow .2s var(--ease);
+}
+.main.has-list .composer-ic { display: block; }
+.main.has-list .composer input { padding: 0; height: 36px; font-size: 15px; }
+.main.has-list .composer .hint { padding: 0 0 8px 28px; }
+.main.has-list .composer .hint:not(.bad, .busy) .ic { display: none; }
+.main.has-list .composer:not(:focus-within) .hint:not(.bad, .busy) { display: none; }
+.main.has-list .composer:focus-within { box-shadow: var(--glass-shadow), 0 0 0 1px #b4aaff40; }
+.main.has-list .composer .picker { max-height: 50vh; overflow-y: auto; }
+
+.scroller {
+  flex: 1; min-height: 0; overflow-y: auto;
+  margin: 0 -28px; padding: 14px 18px 28px 28px;
+  scrollbar-gutter: stable;
+  -webkit-mask-image: linear-gradient(#0000, #000 14px);
+  mask-image: linear-gradient(#0000, #000 14px);
+}
+.scroller::-webkit-scrollbar { width: 10px; }
+.scroller::-webkit-scrollbar-thumb { background: #b4aaff26; border-radius: 10px; border: 3px solid #0000; background-clip: padding-box; }
+.main:not(.has-list) .scroller { display: none; }
 
 /* format picker inside the composer */
-.picker { border-top: 1px solid var(--line); margin: 12px -2px 0 -6px; padding-top: 14px; }
+.picker { grid-area: pick; border-top: 1px solid var(--line); margin: 12px -2px 0 -6px; padding-top: 14px; }
 .pick-head { display: flex; gap: 14px; align-items: center; margin-bottom: 14px; }
 .pick-head img { width: 96px; height: 54px; object-fit: cover; border-radius: 8px; background: var(--track); flex: none; }
 .pick-title { font-weight: 600; font-size: 14.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -255,7 +290,7 @@ body:has(.main.has-list) { --sky-dim: .62; }
 
 /* ---------------------------------------------------------------- list */
 
-.list-wrap { margin-top: 22px; }
+.list-wrap { margin-top: 0; }
 .list-head { display: flex; align-items: baseline; gap: 10px; margin: 0 4px 10px; }
 .list-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .list-count { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }

@@ -431,9 +431,10 @@ function renderActions(r, d) {
 
 // --------------------------------------------------------------- composer
 
+// A hint with a problem or a check in progress stays visible in the one-line composer.
 function setHint(text, bad = false, ic = "link") {
   const h = $("composerHint");
-  h.className = "hint" + (bad ? " bad" : "");
+  h.className = "hint" + (bad ? " bad" : ic === "loader" ? " busy" : "");
   h.innerHTML = icon(ic);
   h.append(text);
 }

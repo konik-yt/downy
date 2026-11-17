@@ -48,24 +48,25 @@
     </section>
 
     <form class="composer" id="composer" autocomplete="off">
+      <span class="composer-ic" data-icon="link" aria-hidden="true"></span>
       <label class="sr-only" for="url">Link to download</label>
       <input id="url" type="text" spellcheck="false" placeholder="Paste a YouTube link or a file link">
-      <div class="composer-row">
-        <span class="hint" id="composerHint"><span data-icon="link"></span>YouTube files are sorted by format, other files go into Downloads</span>
-        <button class="send" type="submit" id="sendBtn" aria-label="Download" title="Download" data-icon="arrowUp"></button>
-      </div>
+      <span class="hint" id="composerHint"><span data-icon="link"></span>YouTube files are sorted by format, other files go into Downloads</span>
+      <button class="send" type="submit" id="sendBtn" aria-label="Download" title="Download" data-icon="arrowUp"></button>
       <div class="picker" id="picker" hidden></div>
     </form>
 
-    <section class="list-wrap" id="listWrap" hidden>
-      <div class="list-head">
-        <h2 id="listTitle">All downloads</h2>
-        <span class="list-count" id="listCount"></span>
-        <div class="list-actions" id="listActions"></div>
-      </div>
-      <div class="list" id="list" role="list"></div>
-      <p class="list-empty" id="listEmpty" hidden></p>
-    </section>
+    <div class="scroller" id="scroller">
+      <section class="list-wrap" id="listWrap" hidden>
+        <div class="list-head">
+          <h2 id="listTitle">All downloads</h2>
+          <span class="list-count" id="listCount"></span>
+          <div class="list-actions" id="listActions"></div>
+        </div>
+        <div class="list" id="list" role="list"></div>
+        <p class="list-empty" id="listEmpty" hidden></p>
+      </section>
+    </div>
   </main>
 </div>
 
