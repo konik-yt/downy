@@ -16,10 +16,17 @@ const state = {
   speed: 0, // smoothed total download speed in bytes per second
   refocus: null, // the element to focus again after a keyboard move
   run: null, // { ids, started, result }: the files that ran since the line was last empty
+  batch: null, // the batch shown on its own from the sidebar
+  batchList: [], // batches built from the downloads, newest first
+  batchPos: new Map(), // download id -> { k, n, next }: its place in its batch
+  batchStates: new Map(), // batch id -> its state at the last render, to notice when one finishes
+  select: null, // { ids, anchor } while picking files
 };
 
 const LIVE = new Set(["downloading", "merging", "converting"]);
 const FAILED = new Set(["error", "cancelled"]);
+// Files that can be picked for a batch: waiting, paused and failed ones.
+const PICKABLE = new Set(["queued", "paused", "error"]);
 const FILTERS = [
   { id: "all", label: "All downloads", icon: "layers", test: () => true },
   { id: "active", label: "Active", icon: "activity", test: (d) => LIVE.has(d.status) },
@@ -94,9 +101,24 @@ function renderSidebar() {
     const tone = !counts[f.id] ? "" : f.id === "active" ? " live" : f.id === "failed" ? " bad" : "";
     const c = el("span", "count" + tone, counts[f.id] ? String(counts[f.id]) : "");
     b.append(c);
-    if (!state.folder && state.filter === f.id) b.setAttribute("aria-current", "true");
+    if (!state.folder && !state.batch && state.filter === f.id) b.setAttribute("aria-current", "true");
+    b.onclick = () => openFilter(f.id);
+    return b;
+  }));
+
+  // One entry per batch, with how many of its files are through.
+  $("batchHead").hidden = !state.batchList.length;
+  $("batchNav").replaceChildren(...state.batchList.map((bt) => {
+    const b = el("button", "nav-item");
+    b.innerHTML = icon("list");
+    b.append(el("span", "", bt.label));
+    const through = bt.saved + bt.failed + bt.cancelled;
+    const tone = bt.state === "running" ? " live" : bt.state === "finished" && bt.failed ? " bad" : bt.state === "finished" ? " good" : "";
+    b.append(el("span", "count" + tone, `${bt.state === "finished" ? bt.saved : through}/${bt.files.length}`));
+    b.title = `Started ${clock(bt.at)}`;
+    if (state.batch === bt.id) b.setAttribute("aria-current", "true");
     b.onclick = () => {
-      state.filter = f.id;
+      state.batch = bt.id;
       state.folder = null;
       render();
     };
@@ -128,6 +150,7 @@ function renderSidebar() {
     if (state.folder === key) b.setAttribute("aria-current", "true");
     b.onclick = () => {
       state.folder = key;
+      state.batch = null;
       render();
     };
     return b;
@@ -185,13 +208,15 @@ const isToday = (ts) => !!ts && new Date(ts).toDateString() === new Date().toDat
 const byOrder = (a, b) => (a.order ?? a.created) - (b.order ?? b.created) || a.created - b.created;
 const newest = (a, b) => (b.finished || b.created) - (a.finished || a.created);
 // Running and paused files keep the full row with the segment bar. Everything else gets a 44px row.
-const isFull = (d) => LIVE.has(d.status) || d.status === "paused";
+// In a batch, only the running file gets the full row.
+const isFull = (d, g) => LIVE.has(d.status) || (d.status === "paused" && !g?.batch);
 
 // The sections of All downloads, top to bottom. Empty ones are left out.
 const SECTIONS = [
   { key: "live", label: "Downloading", test: (d) => LIVE.has(d.status), sort: byOrder },
   { key: "failed", label: "Failed", tone: "bad", test: (d) => FAILED.has(d.status), sort: newest },
-  { key: "paused", label: "Paused", test: (d) => d.status === "paused", sort: newest },
+  // Paused files keep their place in line, which is also the order a batch made from them runs in.
+  { key: "paused", label: "Paused", test: (d) => d.status === "paused", sort: byOrder },
   { key: "waiting", label: "Waiting", test: (d) => d.status === "queued", sort: byOrder },
   { key: "today", label: "Finished today", test: (d) => d.status === "done" && isToday(d.finished), sort: newest },
   { key: "earlier", label: "Earlier", test: (d) => d.status === "done" && !isToday(d.finished), sort: newest },
@@ -219,7 +244,19 @@ function savePrefs() {
   } catch {}
 }
 
+// A batch section: the card, the running file, then the rest. Failed files come first
+// so they are easy to find, then the ones still to come, then the saved ones.
+const BATCH_RANK = { error: 0, cancelled: 0, queued: 1, paused: 2, done: 3 };
+const batchGroup = (b, flat) => ({
+  id: `${flat ? "only-" : ""}batch-${b.id}`, key: "batch", batch: b, flat, label: b.label,
+  items: [...b.files].sort((x, y) => (BATCH_RANK[x.status] ?? -1) - (BATCH_RANK[y.status] ?? -1) || x.batchIndex - y.batchIndex),
+});
+
 function groups() {
+  if (state.batch) {
+    const b = state.batchList.find((x) => x.id === state.batch);
+    return b ? [batchGroup(b, true)] : [];
+  }
   if (state.folder) {
     const items = state.downloads.filter((d) => d.status === "done" && (folderOf(d) === state.folder || folderOf(d).startsWith(state.folder + "/")));
     return items.length ? [{ id: "folder", key: "folder", flat: true, compact: true, label: folderLabel(state.folder), items: items.sort(newest) }] : [];
@@ -227,11 +264,296 @@ function groups() {
   if (state.filter !== "all") {
     const f = FILTERS.find((x) => x.id === state.filter);
     const key = FILTER_KEYS[f.id];
-    const items = state.downloads.filter(f.test).sort(key === "live" || key === "waiting" ? byOrder : newest);
+    const items = state.downloads.filter(f.test).sort(key === "live" || key === "waiting" || key === "paused" ? byOrder : newest);
     return items.length ? [{ id: `filter-${f.id}`, key, flat: true, compact: key !== "live" && key !== "paused", label: f.label, items }] : [];
   }
-  return SECTIONS.map((s) => ({ ...s, id: s.key, compact: s.key !== "live" && s.key !== "paused", items: state.downloads.filter(s.test).sort(s.sort) }))
-    .filter((g) => g.items.length);
+  // Files in a batch show up in their batch's section only.
+  const rest = SECTIONS.map((s) => ({ ...s, id: s.key, compact: s.key !== "live" && s.key !== "paused", items: state.downloads.filter((d) => !d.batch && s.test(d)).sort(s.sort) }));
+  // Running and paused batches go on top. Finished ones wait above the finished files until dismissed.
+  const open = state.batchList.filter((b) => b.state !== "finished").map((b) => batchGroup(b, false));
+  const over = state.batchList.filter((b) => b.state === "finished").map((b) => batchGroup(b, false));
+  const at = rest.findIndex((g) => g.key === "today");
+  return [...open, ...rest.slice(0, at), ...over, ...rest.slice(at)].filter((g) => g.items.length);
+}
+
+// ---------------------------------------------------------------- batches
+
+const clock = (ts) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+// Batches come from the batch fields on each file, newest first.
+function buildBatches() {
+  const map = new Map();
+  for (const d of state.downloads) {
+    if (!d.batch) continue;
+    if (!map.has(d.batch)) map.set(d.batch, { id: d.batch, at: d.batchAt, files: [] });
+    map.get(d.batch).files.push(d);
+  }
+  state.batchPos = new Map();
+  state.batchList = [...map.values()].map((b) => {
+    b.files.sort((x, y) => x.batchIndex - y.batchIndex);
+    const count = (test) => b.files.filter(test).length;
+    b.saved = count((d) => d.status === "done");
+    b.failed = count((d) => d.status === "error");
+    b.cancelled = count((d) => d.status === "cancelled");
+    b.waiting = count((d) => d.status === "queued");
+    b.paused = count((d) => d.status === "paused");
+    b.live = b.files.filter((d) => LIVE.has(d.status));
+    b.state = b.live.length || b.waiting ? "running" : b.paused ? "paused" : "finished";
+    b.label = `Batch of ${b.files.length}`;
+    const next = b.files.find((d) => d.status === "queued");
+    b.files.forEach((d, k) => state.batchPos.set(d.id, { k: k + 1, n: b.files.length, next: d === next }));
+    return b;
+  }).sort((x, y) => y.at - x.at);
+  if (state.batch && !map.has(state.batch)) state.batch = null;
+
+  // A batch that just ended says so once. Batches that were already over at startup don't.
+  for (const b of state.batchList) {
+    const was = state.batchStates.get(b.id);
+    if (was && was !== "finished" && b.state === "finished" && (b.saved || b.failed)) {
+      toast(`${b.label} finished. ${b.saved} saved${b.failed ? `, ${b.failed} failed` : ""}`, false);
+    }
+  }
+  state.batchStates = new Map(state.batchList.map((b) => [b.id, b.state]));
+}
+
+function makeCard() {
+  const c = { el: el("div", "batch"), actsSig: null };
+  c.icon = el("span", "b-icon");
+  c.title = el("div", "b-title");
+  c.sub = el("div", "b-sub");
+  const text = el("div", "b-text");
+  text.append(c.title, c.sub);
+  c.acts = el("div", "b-actions");
+  const top = el("div", "b-top");
+  top.append(c.icon, text, c.acts);
+  c.nums = el("div", "b-nums");
+  c.strip = el("div", "strip");
+  c.strip.setAttribute("role", "img");
+  c.legend = el("div", "strip-legend");
+  c.el.append(top, c.nums, c.strip, c.legend);
+  return c;
+}
+
+function chip(cls, text) {
+  const c = el("span", "chip " + cls);
+  c.append(el("i"), text);
+  return c;
+}
+
+function updateCard(c, b, est) {
+  const n = b.files.length;
+  const over = b.state === "finished";
+  const none = over && !b.saved && !b.failed;
+  c.el.dataset.state = b.state;
+  const ic = b.state === "running" ? "list" : b.state === "paused" ? "pause" : none ? "x" : "check";
+  if (c.iconName !== ic) {
+    c.iconName = ic;
+    c.icon.innerHTML = icon(ic);
+  }
+
+  const lastDone = Math.max(...b.files.map((d) => d.finished || 0));
+  const savedBytes = b.files.filter((d) => d.status === "done").reduce((t, d) => t + (d.expected || 0), 0);
+  let title, sub;
+  if (b.state === "running") {
+    title = `${b.label} files, one at a time`;
+    sub = `Started ${clock(b.at)}. Downloads one file at a time and skips files that fail.`;
+  } else if (b.state === "paused") {
+    title = "Batch paused";
+    sub = `${b.saved + b.failed + b.cancelled} of ${n} files are through. Resume goes on with the next file.`;
+  } else {
+    title = none ? "Batch cancelled" : "Batch finished";
+    sub = none ? `Started ${clock(b.at)}.` : `Took ${span(Math.max(1, lastDone - b.at) / 1000)}. ${size(savedBytes)} saved.`;
+  }
+  if (c.title.textContent !== title) c.title.textContent = title;
+  if (c.sub.textContent !== sub) c.sub.textContent = sub;
+
+  const acts = [];
+  if (b.state === "running") {
+    acts.push(["Pause batch", "pause", "", () => call(downy.pauseBatch, b.id)]);
+    acts.push(["Cancel batch", "x", "ghost", () => call(downy.cancelBatch, b.id)]);
+  } else if (b.state === "paused") {
+    acts.push(["Resume batch", "play", "primary", () => call(downy.resumeBatch, b.id)]);
+    acts.push(["Cancel batch", "x", "ghost", () => call(downy.cancelBatch, b.id)]);
+  } else {
+    if (b.failed) acts.push(["Retry failed", "retry", "primary", () => call(downy.retryBatch, b.id)]);
+    if (b.saved) acts.push(["Open folder", "folder", "", () => openBatchFolder(b)]);
+    acts.push(["Dismiss", "x", "ghost", () => call(downy.dismissBatch, b.id)]);
+  }
+  const sig = acts.map((a) => a[0]).join("|");
+  if (c.actsSig !== sig) {
+    c.actsSig = sig;
+    c.acts.replaceChildren(...acts.map(([label, i, cls, fn]) => {
+      const btn = el("button", "btn " + cls);
+      btn.type = "button";
+      btn.innerHTML = icon(i);
+      btn.append(label);
+      btn.onclick = fn;
+      return btn;
+    }));
+  }
+
+  const nums = [];
+  if (over) {
+    if (!none) nums.push(bigNum(String(b.saved), "saved"));
+    if (b.failed) nums.push(bigNum(String(b.failed), "failed", "bad"));
+    if (b.cancelled) nums.push(chip("wait", `${b.cancelled} cancelled`));
+  } else {
+    nums.push(bigNum(String(Math.min(n, b.saved + b.failed + b.cancelled + b.live.length)), `of ${n}`));
+    nums.push(chip("ok", `${b.saved} saved`));
+    if (b.failed) nums.push(chip("bad", `${b.failed} failed`));
+    if (b.live.length) nums.push(chip("now", "1 running"));
+    if (b.paused) nums.push(chip("paused", `${b.paused} paused`));
+    if (b.waiting) nums.push(chip("wait", `${b.waiting} waiting`));
+    if (b.cancelled) nums.push(chip("wait", `${b.cancelled} cancelled`));
+    const left = est.batches.get(b.id);
+    const speed = b.live.reduce((t, d) => t + (d.speed || 0), 0);
+    if (left != null && b.state === "running") nums.push(el("span", "b-eta", `About ${span(left)} left${speed ? ` at ${size(speed)}/s` : ""}`));
+  }
+  c.nums.replaceChildren(...nums);
+
+  // The strip has one block per file, in batch order.
+  if (c.strip.children.length !== n) c.strip.replaceChildren(...b.files.map(() => el("i")));
+  b.files.forEach((d, k) => {
+    const block = c.strip.children[k];
+    const cls = d.status === "done" ? "ok" : d.status === "error" ? "bad" : d.status === "cancelled" ? "off" : LIVE.has(d.status) ? "now" : d.status === "paused" ? "held" : "";
+    if (block.className !== cls) {
+      block.className = cls;
+      block.replaceChildren(...(cls === "now" ? [el("b")] : []));
+    }
+    if (cls === "now") block.firstChild.style.width = `${Math.round((d.status === "downloading" ? d.progress : 1) * 100)}%`;
+    block.title = `${k + 1}. ${d.title}`;
+  });
+  c.strip.setAttribute("aria-label", `${b.saved} of ${n} saved, ${b.failed} failed`);
+  const legend = `File 1|File ${n}`;
+  if (c.legendSig !== legend) {
+    c.legendSig = legend;
+    c.legend.replaceChildren(el("span", "", "File 1"), el("span", "", `File ${n}`));
+  }
+}
+
+function bigNum(value, unit, cls = "") {
+  const b = el("span", "b-big " + cls, value + " ");
+  b.append(el("small", "", unit));
+  return b;
+}
+
+// Opens the folder the batch saved into, or the download folder when its files went to several places.
+function openBatchFolder(b) {
+  const dirs = new Set(b.files.filter((d) => d.status === "done").map(folderOf));
+  const [dir] = dirs;
+  if (dirs.size === 1 && dir !== "Other") call(downy.openFolder, dir);
+  else if (dirs.size === 1) call(downy.reveal, b.files.find((d) => d.status === "done").id);
+  else call(downy.openFolder);
+}
+
+// Brings a new batch into view once its files show up in the list.
+function showBatch(id) {
+  const tryShow = (n) => {
+    const s = state.secs.get(`batch-${id}`);
+    if (!s) return n > 0 && setTimeout(() => tryShow(n - 1), 150);
+    s.el.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  };
+  tryShow(10);
+}
+
+// ------------------------------------------------------------- picking files
+
+// Files of a batch that is still going stay in it.
+const canPick = (d) => PICKABLE.has(d.status) && !(d.batch && state.batchList.find((b) => b.id === d.batch)?.state !== "finished");
+
+// Pickable files in the order the list shows them, for shift click ranges. Closed sections are left out.
+function pickOrder() {
+  return groups().filter((g) => g.flat || !prefs.collapsed.has(g.id)).flatMap((g) => g.items).filter(canPick).map((d) => d.id);
+}
+
+function startSelect() {
+  state.select = { ids: new Set(), anchor: null };
+  render();
+}
+
+function endSelect() {
+  state.select = null;
+  render();
+}
+
+function togglePick(id, range) {
+  const sel = state.select;
+  if (!sel) return;
+  const order = pickOrder();
+  const a = order.indexOf(sel.anchor);
+  const b = order.indexOf(id);
+  if (range && a >= 0 && b >= 0) for (const x of order.slice(Math.min(a, b), Math.max(a, b) + 1)) sel.ids.add(x);
+  else if (sel.ids.has(id)) sel.ids.delete(id);
+  else sel.ids.add(id);
+  sel.anchor = id;
+  render();
+}
+
+function pickedFiles() {
+  return state.select ? state.downloads.filter((d) => state.select.ids.has(d.id) && canPick(d)) : [];
+}
+
+function renderSelbar() {
+  const bar = $("selbar");
+  $("main").classList.toggle("selecting", !!state.select);
+  bar.hidden = !state.select;
+  if (!state.select) return;
+  const picked = pickedFiles();
+  const n = picked.length;
+  $("selCount").textContent = n ? `${n} ${n === 1 ? "file" : "files"} picked` : "Pick files";
+  const sizes = picked.map((d) => d.expected || 0);
+  const total = sizes.every(Boolean) && n ? `${size(sizes.reduce((a, b) => a + b, 0))} in all. ` : "";
+  $("selSub").textContent = n
+    ? `${total}One at a time, in the order they were added. A file that fails is skipped.`
+    : "Click the files to download one by one. Shift click picks a range.";
+  $("selBatch").disabled = !n;
+  $("selResume").disabled = !picked.some((d) => d.status === "paused" || d.status === "error");
+}
+
+async function batchPicked() {
+  const ids = pickedFiles().map((d) => d.id);
+  if (!ids.length) return;
+  try {
+    const id = await call(downy.startBatch, ids);
+    state.select = null;
+    state.filter = "all";
+    state.folder = null;
+    state.batch = null;
+    render();
+    showBatch(id);
+  } catch {}
+}
+
+function resumePicked() {
+  for (const d of pickedFiles()) if (d.status === "paused" || d.status === "error") call(downy.resume, d.id).catch(() => {});
+  endSelect();
+}
+
+// The tick box at the start of a row while picking. Clicks on it reach the row's own click handler.
+function checkBox() {
+  const b = el("button", "check");
+  b.type = "button";
+  b.setAttribute("role", "checkbox");
+  b.innerHTML = icon("tick");
+  return b;
+}
+
+function wirePick(r) {
+  r.el.addEventListener("click", (e) => {
+    if (!r.el.classList.contains("picking") || e.target.closest("button:not(.check)")) return;
+    togglePick(r.el.dataset.id, e.shiftKey);
+  });
+}
+
+function paintPick(r, d) {
+  const picking = !!state.select && canPick(d);
+  const on = picking && state.select.ids.has(d.id);
+  r.el.classList.toggle("picking", picking);
+  r.el.classList.toggle("checked", on);
+  if (r.check) {
+    r.check.setAttribute("aria-checked", String(on));
+    r.check.setAttribute("aria-label", `Pick ${d.title}`);
+  }
 }
 
 // ------------------------------------------------------------ estimates
@@ -247,23 +569,41 @@ function trackSpeed() {
 
 // When each waiting file should start and when the whole line should be done. Each running
 // file gets an even share of the current speed, and a waiting file takes the first slot to
-// free up. A file with no known size stops the estimate there.
+// free up. A file with no known size stops the estimate there. A batch keeps to one slot,
+// so its files queue up behind each other there.
 function estimate() {
   const live = state.downloads.filter((d) => LIVE.has(d.status));
   const running = live.filter((d) => d.status === "downloading");
   const starts = new Map();
-  if (!state.speed || !running.length) return { starts, done: null };
+  const batches = new Map(); // batch id -> seconds until its last file is done
+  if (!state.speed || !running.length) return { starts, batches, done: null };
   const share = state.speed / running.length;
   const free = live.map((d) => (d.status !== "downloading" ? 0 : d.expected ? left(d) / share : Infinity));
   while (free.length < (state.settings?.maxActive || 1)) free.push(0);
-  for (const d of state.downloads.filter((x) => x.status === "queued").sort(byOrder)) {
-    free.sort((a, b) => a - b);
-    if (!isFinite(free[0])) break;
-    starts.set(d.id, free[0]);
-    free[0] += d.expected ? d.expected / share : Infinity;
+  const slotOf = new Map(); // batch id -> the slot its files run in
+  live.forEach((d, k) => d.batch && slotOf.set(d.batch, k));
+  const earliest = () => free.reduce((best, t, k) => (t < free[best] ? k : best), 0);
+  const queued = state.downloads.filter((x) => x.status === "queued")
+    .sort((a, b) => (a.batch && a.batch === b.batch ? a.batchIndex - b.batchIndex : byOrder(a, b)));
+  for (const d of queued) {
+    const k = d.batch && slotOf.has(d.batch) ? slotOf.get(d.batch) : earliest();
+    if (!isFinite(free[k])) {
+      if (!d.batch) break;
+      batches.set(d.batch, Infinity);
+      continue;
+    }
+    starts.set(d.id, free[k]);
+    free[k] += d.expected ? d.expected / share : Infinity;
+    if (d.batch) {
+      slotOf.set(d.batch, k);
+      batches.set(d.batch, free[k]);
+    }
   }
+  // A batch whose last file is running ends when that file does.
+  for (const d of live) if (d.batch && !batches.has(d.batch)) batches.set(d.batch, free[live.indexOf(d)]);
+  for (const [id, s] of batches) if (!isFinite(s)) batches.delete(id);
   const done = Math.max(...free);
-  return { starts, done: isFinite(done) ? done : null };
+  return { starts, batches, done: isFinite(done) ? done : null };
 }
 
 // "11 min" or "1 h 5 min" or "40 s".
@@ -321,8 +661,14 @@ function makeSection(g) {
   s.acts = el("span", "sec-acts");
   head.append(s.title, el("span", "sec-line"), s.meta, s.acts);
   s.body = el("div", "sec-body");
-  s.rows = g.compact ? el("div", "stack") : s.body;
-  if (g.compact) s.body.append(s.rows);
+  // A batch section holds its card, then the running file, then a stack with the rest.
+  if (g.batch) {
+    s.card = makeCard();
+    s.live = el("div", "batch-live");
+    s.body.append(s.card.el, s.live);
+  }
+  s.rows = g.compact || g.batch ? el("div", "stack") : s.body;
+  if (g.compact || g.batch) s.body.append(s.rows);
   s.rows.setAttribute("role", "list");
   s.rows.setAttribute("aria-label", g.label);
   s.more = el("button", "more");
@@ -359,14 +705,32 @@ function sectionActions(s) {
   const ids = () => s.group.items.map((d) => d.id);
   const anyRunning = state.downloads.some((d) => d.status === "downloading" || d.status === "queued");
   const errors = g.items.filter((d) => d.status === "error").length;
-  if (g.key === "live" && anyRunning) a.push(["Pause all", "pause", () => call(downy.pauseAll)]);
-  if (g.key === "paused" && g.items.length > 1) a.push(["Resume all", "play", () => call(downy.resumeAll)]);
-  if (g.key === "waiting" && g.flat) a.push(["Pause all waiting", "pause", () => ids().forEach((id) => call(downy.pause, id).catch(() => {}))]);
-  if (g.key === "failed" && errors) {
-    a.push([errors > 1 ? "Retry all" : "Retry", "retry", () => s.group.items.filter((d) => d.status === "error").forEach((d) => call(downy.resume, d.id).catch(() => {}))]);
+  const pickable = g.items.filter(canPick);
+  if (state.select) {
+    // While picking, a section's only button picks or drops all of its files.
+    if (pickable.length && g.key !== "batch") {
+      const all = pickable.every((d) => state.select.ids.has(d.id));
+      a.push([all ? "Pick none" : "Pick all", "checkSquare", () => {
+        const items = s.group.items.filter(canPick);
+        const on = !items.every((d) => state.select.ids.has(d.id));
+        for (const d of items) on ? state.select.ids.add(d.id) : state.select.ids.delete(d.id);
+        render();
+      }]);
+    }
+  } else {
+    if (["paused", "waiting", "failed"].includes(g.key) && pickable.length > 1) a.push(["Download one by one", "list", startSelect]);
+    if (g.key === "live" && anyRunning) a.push(["Pause all", "pause", () => call(downy.pauseAll)]);
+    if (g.key === "paused" && g.items.length > 1) a.push(["Resume all", "play", () => call(downy.resumeAll)]);
+    if (g.key === "waiting" && g.flat) a.push(["Pause all waiting", "pause", () => ids().forEach((id) => call(downy.pause, id).catch(() => {}))]);
+    if (g.key === "failed" && errors) {
+      a.push([errors > 1 ? "Retry all" : "Retry", "retry", () => s.group.items.filter((d) => d.status === "error").forEach((d) => call(downy.resume, d.id).catch(() => {}))]);
+    }
+    if (g.key === "folder" && state.folder !== "Other") a.push(["Open folder", "folder", () => call(downy.openFolder, state.folder)]);
+    if (["failed", "today", "earlier", "done", "folder"].includes(g.key)) a.push(["Clear from list", "trash", () => call(downy.remove, ids())]);
+    if (g.key === "batch" && g.batch.state === "finished" && g.batch.saved) {
+      a.push(["Clear saved from list", "trash", () => call(downy.remove, s.group.items.filter((d) => d.status === "done").map((d) => d.id))]);
+    }
   }
-  if (g.key === "folder" && state.folder !== "Other") a.push(["Open folder", "folder", () => call(downy.openFolder, state.folder)]);
-  if (["failed", "today", "earlier", "done", "folder"].includes(g.key)) a.push(["Clear from list", "trash", () => call(downy.remove, ids())]);
   const sig = a.map((x) => x[0]).join("|");
   if (sig === s.actsSig) return;
   s.actsSig = sig;
@@ -399,13 +763,22 @@ function updateSection(s, g, est) {
 
 function render() {
   const has = state.downloads.length > 0;
+  buildBatches();
+  if (state.select) {
+    // Files that can't be picked any more, or are gone, drop out of the picked set.
+    const ok = new Set(state.downloads.filter(canPick).map((d) => d.id));
+    for (const id of state.select.ids) if (!ok.has(id)) state.select.ids.delete(id);
+    if (!has) state.select = null;
+  }
   $("main").classList.toggle("has-list", has);
   $("listWrap").hidden = !has;
   renderSidebar();
   renderSummary();
+  renderSelbar();
   if (!has) return;
   const f = FILTERS.find((x) => x.id === state.filter);
-  $("crumbPage").textContent = state.folder ? folderLabel(state.folder) : f.label;
+  const shownBatch = state.batchList.find((b) => b.id === state.batch);
+  $("crumbPage").textContent = shownBatch ? shownBatch.label : state.folder ? folderLabel(state.folder) : f.label;
 
   const est = estimate();
   const gs = groups();
@@ -425,38 +798,28 @@ function render() {
     prevSec = s.el;
     if (updateSection(s, g, est)) continue;
 
+    // A batch shows its card and its running file above the stack of its other files.
+    let items = g.items;
+    if (g.batch) {
+      updateCard(s.card, g.batch, est);
+      const live = items.filter((d) => isFull(d, g));
+      placeRows(s.live, live, g, est, seenRows, false);
+      s.live.hidden = !live.length;
+      items = items.filter((d) => !isFull(d, g));
+      s.rows.hidden = !items.length;
+    }
+
     // A filter is where you go to see every row, so only the sections of All downloads get cut short.
-    const long = !g.flat && g.items.length > CAP_OVER;
+    const long = !g.flat && items.length > CAP_OVER;
     const capped = long && !prefs.expanded.has(g.id);
-    const shown = capped ? g.items.slice(0, CAP_SHOW) : g.items;
+    const shown = capped ? items.slice(0, CAP_SHOW) : items;
     // While a row is being dragged, its section keeps the order the user is making.
-    const frozen = drag && drag.container === s.rows;
-    let prev = null;
-    shown.forEach((d, k) => {
-      const kind = isFull(d) ? "full" : "mini";
-      let r = state.rows.get(d.id);
-      if (r && r.kind !== kind) {
-        r.el.remove();
-        r = null;
-      }
-      if (!r) {
-        r = kind === "full" ? makeRow(d) : makeMini(d);
-        state.rows.set(d.id, r);
-      }
-      if (kind === "full") updateRow(r, d);
-      else updateMini(r, d, { place: k + 1, start: est.starts.get(d.id) });
-      seenRows.add(d.id);
-      if (!frozen || !r.el.isConnected) {
-        const at = prev ? prev.nextSibling : s.rows.firstChild;
-        if (at !== r.el) s.rows.insertBefore(r.el, at);
-      }
-      prev = r.el;
-    });
-    s.rows.dataset.firstHidden = capped ? g.items[CAP_SHOW].id : "";
+    placeRows(s.rows, shown, g, est, seenRows, drag && drag.container === s.rows);
+    s.rows.dataset.firstHidden = capped ? items[CAP_SHOW].id : "";
     if (long) {
       s.more.innerHTML = icon("chevron");
       s.more.classList.toggle("open", !capped);
-      s.more.append(capped ? `Show ${g.items.length - CAP_SHOW} more` : "Show fewer");
+      s.more.append(capped ? `Show ${items.length - CAP_SHOW} more` : "Show fewer");
       if (s.rows.lastChild !== s.more) s.rows.append(s.more);
     } else s.more.remove();
   }
@@ -482,6 +845,33 @@ function render() {
   if (state.refocus) {
     if (state.refocus.isConnected && document.activeElement !== state.refocus) state.refocus.focus({ preventScroll: true });
     state.refocus = null;
+  }
+}
+
+// Puts the rows for `items` into `box` in order, making or reusing each one.
+function placeRows(box, items, g, est, seen, frozen) {
+  let prev = null;
+  let place = 0; // a waiting file's place in line; batch files have their place in the batch instead
+  for (const d of items) {
+    const kind = isFull(d, g) ? "full" : "mini";
+    let r = state.rows.get(d.id);
+    if (r && r.kind !== kind) {
+      r.el.remove();
+      r = null;
+    }
+    if (!r) {
+      r = kind === "full" ? makeRow(d) : makeMini(d);
+      state.rows.set(d.id, r);
+    }
+    if (d.status === "queued" && !d.batch) place++;
+    if (kind === "full") updateRow(r, d);
+    else updateMini(r, d, { place, start: est.starts.get(d.id) });
+    seen.add(d.id);
+    if (!frozen || !r.el.isConnected) {
+      const at = prev ? prev.nextSibling : box.firstChild;
+      if (at !== r.el) box.insertBefore(r.el, at);
+    }
+    prev = r.el;
   }
 }
 
@@ -554,6 +944,7 @@ function runResult(run) {
 function openFilter(id) {
   state.filter = id;
   state.folder = null;
+  state.batch = null;
   render();
 }
 
@@ -606,7 +997,9 @@ function makeRow(d) {
   r.rate = el("div", "rate");
   r.actions = el("div", "actions");
   r.side.append(r.rate, r.actions);
-  r.el.append(r.thumb, r.body, r.side);
+  r.check = checkBox();
+  r.el.append(r.check, r.thumb, r.body, r.side);
+  wirePick(r);
   return r;
 }
 
@@ -629,6 +1022,7 @@ function makeMini(d) {
   });
   r.el.addEventListener("keydown", (e) => queueKeys(e, r));
   wireDrag(r);
+  wirePick(r);
   return r;
 }
 
@@ -664,6 +1058,7 @@ const thumbSig = (d) => [d.kind, d.thumbnail, d.ext, d.folder].join("|");
 
 function updateRow(r, d) {
   r.el.dataset.status = d.status;
+  paintPick(r, d);
   if (r.thumbSig !== thumbSig(d)) {
     r.thumbSig = thumbSig(d);
     paintThumb(r.thumb, d, false);
@@ -678,6 +1073,8 @@ function updateRow(r, d) {
 
   const [ic, text] = statusLine(d);
   const meta = [];
+  const bp = state.batchPos.get(d.id);
+  if (bp) meta.push(el("span", "pos next", `${bp.k} of ${bp.n}`));
   const st = el("span", "state");
   st.innerHTML = icon(ic);
   st.append(text);
@@ -705,18 +1102,26 @@ function updateRow(r, d) {
 // ctx.place is the row's place in its section, ctx.start the seconds until a waiting file starts.
 function updateMini(r, d, ctx) {
   r.el.dataset.status = d.status;
-  r.el.draggable = d.status === "queued";
+  const picking = !!state.select && canPick(d);
+  const movable = d.status === "queued" && !d.batch && !state.select;
+  r.el.draggable = movable;
+  paintPick(r, d);
   if (r.thumbSig !== thumbSig(d)) {
     r.thumbSig = thumbSig(d);
     paintThumb(r.thumb, d, true);
   }
-  const sig = [d.status, d.title].join("|");
+  const sig = [d.status, d.title, picking, movable, !!d.batch].join("|");
   if (r.sig !== sig) {
     r.sig = sig;
     r.title.textContent = d.title;
     r.title.title = d.title;
     r.lead.replaceChildren();
-    if (d.status === "queued") {
+    r.check = null;
+    if (picking) {
+      r.check = checkBox();
+      r.lead.append(r.check);
+      paintPick(r, d);
+    } else if (movable) {
       const grip = el("button", "grip");
       grip.type = "button";
       grip.innerHTML = icon("grip");
@@ -728,13 +1133,18 @@ function updateMini(r, d, ctx) {
     r.stateKey = null;
   }
 
+  const bp = state.batchPos.get(d.id);
   let key;
-  if (d.status === "queued") key = `q|${ctx.place}`;
+  if (d.status === "queued" && bp) key = `b|${bp.k}|${bp.n}|${bp.next}`;
+  else if (d.status === "queued") key = `q|${ctx.place}`;
   else if (d.status === "done") key = `d|${savedIn(d)}`;
   else key = `${d.status}|${d.error}`;
   if (r.stateKey !== key) {
     r.stateKey = key;
-    if (d.status === "queued") setPlace(r, ctx.place);
+    if (d.status === "queued" && bp) {
+      r.state.replaceChildren(el("span", "pos" + (bp.next ? " next" : ""), bp.next ? "Next in the batch" : `${bp.k} of ${bp.n}`));
+      r.state.title = "";
+    } else if (d.status === "queued") setPlace(r, ctx.place);
     else {
       const [ic, text] = statusLine(d);
       r.state.innerHTML = icon(ic);
@@ -768,9 +1178,11 @@ function renderActions(r, d) {
   const a = [];
   const id = d.id;
   if (d.status === "queued") {
-    const top = actionButton("Move to top", "toTop", () => call(downy.moveToTop, id));
-    top.dataset.act = "top";
-    a.push(top);
+    if (!d.batch) {
+      const top = actionButton("Move to top", "toTop", () => call(downy.moveToTop, id));
+      top.dataset.act = "top";
+      a.push(top);
+    }
     a.push(actionButton("Pause", "pause", () => call(downy.pause, id)));
     a.push(actionButton("Cancel download", "x", () => call(downy.cancel, id), "danger"));
   } else if (d.status === "downloading") {
@@ -920,6 +1332,7 @@ async function addFile(url) {
     defaultHint();
     state.filter = "all";
     state.folder = null;
+    state.batch = null;
     flash(res.data.id);
   } finally {
     send.disabled = false;
@@ -1018,6 +1431,7 @@ async function startDownload(option) {
     const d = await call(downy.download, url, option.id);
     state.filter = "all";
     state.folder = null;
+    state.batch = null;
     flash(d.id);
   } catch {}
 }
@@ -1320,8 +1734,13 @@ function wire() {
     if (/^https?:\/\//i.test(text)) takeLink(text);
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && state.picker) closePicker();
+    if (e.key !== "Escape") return;
+    if (state.picker) closePicker();
+    else if (state.select && !document.querySelector("dialog[open]")) endSelect();
   });
+  $("selDone").onclick = endSelect;
+  $("selResume").onclick = resumePicked;
+  $("selBatch").onclick = batchPicked;
 
   const dialog = $("settings");
   const openSettings = async () => {
@@ -1420,6 +1839,7 @@ function wire() {
   downy.onFocus((id) => {
     state.filter = "all";
     state.folder = null;
+    state.batch = null;
     render();
     flash(id);
   });
