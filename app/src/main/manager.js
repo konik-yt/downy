@@ -12,6 +12,8 @@ const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("
 
 const ACTIVE = new Set(["downloading", "merging", "converting"]);
 const FINISHED = new Set(["done", "error", "cancelled"]);
+// The queue runs by order: lowest first. Files from older versions use their created time.
+const byOrder = (a, b) => a.order - b.order || a.created - b.created;
 const PROGRESS_RE = /^DOWNY\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$/;
 
 const CHILD_ENV = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" };
@@ -156,6 +158,8 @@ class Manager extends EventEmitter {
       }
       // Anything that was running when Downy closed comes back paused.
       if (ACTIVE.has(j.status) || j.status === "queued") j.status = j.status === "queued" ? "queued" : "paused";
+      // Older versions had no queue order and started files by when they were added.
+      if (!Number.isFinite(j.order)) j.order = Number(j.created) || 0;
       j.speed = 0;
       j.eta = null;
       this.jobs.set(j.id, j);
@@ -207,7 +211,7 @@ class Manager extends EventEmitter {
       source: j.source || "youtube", dir: j.dir || j.folder, ext: j.ext || "",
       kind: j.kind, status: j.status, error: j.error, downloaded: j.downloaded, expected, progress,
       speed: j.speed || 0, eta: j.eta, filepath: j.filepath, filename: j.filepath ? path.basename(j.filepath) : "",
-      created: j.created, finished: j.finished, mode: j.mode, phase: j.phase || "",
+      created: j.created, finished: j.finished, order: j.order, mode: j.mode, phase: j.phase || "",
       stream: current ? { role: current.role, index: j.streams.indexOf(current) + 1, count: j.streams.length } : null,
       segments, connections: segments.filter((s) => s.live).length || (rt?.proc ? this.settings.get().connections : 0),
       postProgress: j.postProgress || 0, resumable: j.resumable,
@@ -267,6 +271,7 @@ class Manager extends EventEmitter {
     if (custom.dir && path.isAbsolute(String(custom.dir))) job.customDir = path.resolve(String(custom.dir));
     if (custom.name && cleanName(custom.name)) job.customName = cleanName(custom.name);
     if (job.customName && job.kind === "file") job.title = job.filename = this.targetName(job);
+    job.order = this.lastOrder() + 1;
     this.jobs.set(job.id, job);
     this.save();
     this.changed();
@@ -353,6 +358,7 @@ class Manager extends EventEmitter {
     const j = this.jobs.get(id);
     if (!j || !(j.status === "paused" || j.status === "error")) return;
     j.status = "queued";
+    j.order = this.lastOrder() + 1; // a resumed file joins the end of the line
     j.error = "";
     this.save();
     this.changed();
@@ -363,8 +369,42 @@ class Manager extends EventEmitter {
     for (const j of this.jobs.values()) if (j.status === "queued" || j.status === "downloading") this.pause(j.id);
   }
 
+  // Paused files join the line in the order they had.
   resumeAll() {
-    for (const j of this.jobs.values()) if (j.status === "paused") this.resume(j.id);
+    const paused = [...this.jobs.values()].filter((j) => j.status === "paused").sort(byOrder);
+    for (const j of paused) this.resume(j.id);
+  }
+
+  // --------------------------------------------------------------- queue order
+
+  lastOrder() {
+    let n = 0;
+    for (const j of this.jobs.values()) if (j.order > n) n = j.order;
+    return n;
+  }
+
+  queue() {
+    return [...this.jobs.values()].filter((j) => j.status === "queued").sort(byOrder);
+  }
+
+  // Puts a waiting file in front of beforeId, or at the end of the line when beforeId is empty.
+  // The queued files swap their order values among themselves, so files outside the queue keep theirs.
+  move(id, beforeId) {
+    const j = this.jobs.get(id);
+    if (!j || j.status !== "queued" || id === beforeId) return;
+    const queue = this.queue();
+    const slots = queue.map((x) => x.order);
+    const rest = queue.filter((x) => x !== j);
+    const at = beforeId ? rest.findIndex((x) => x.id === beforeId) : -1;
+    rest.splice(at < 0 ? rest.length : at, 0, j);
+    rest.forEach((x, k) => (x.order = slots[k]));
+    this.save();
+    this.changed();
+  }
+
+  moveToTop(id) {
+    const first = this.queue()[0];
+    if (first && first.id !== id) this.move(id, first.id);
   }
 
   cancel(id) {
@@ -384,11 +424,14 @@ class Manager extends EventEmitter {
     this.changed();
   }
 
-  remove(id) {
-    const j = this.jobs.get(id);
-    if (!j || this.runtime.has(id)) return;
-    this.jobs.delete(id);
-    this.cleanup(j); // a failed job still has its part files for a retry
+  // Takes one id or a list of ids, and saves once.
+  remove(ids) {
+    for (const id of [].concat(ids)) {
+      const j = this.jobs.get(id);
+      if (!j || this.runtime.has(id)) continue;
+      this.jobs.delete(id);
+      this.cleanup(j); // a failed job still has its part files for a retry
+    }
     this.save();
     this.changed();
   }
@@ -418,7 +461,15 @@ class Manager extends EventEmitter {
     }
     await Promise.allSettled([...this.runtime.values()].map((rt) => rt.done));
     for (const j of this.jobs.values()) if (ACTIVE.has(j.status)) j.status = "paused";
-    if (resume) for (const id of running) if (this.jobs.get(id)?.status === "paused") this.jobs.get(id).status = "queued";
+    if (resume) {
+      // Files that were running go back to the front of the line, in the order they had.
+      const back = running.map((id) => this.jobs.get(id)).filter((j) => j?.status === "paused").sort(byOrder);
+      let first = Math.min(0, ...this.queue().map((j) => j.order));
+      for (const j of back.reverse()) {
+        j.status = "queued";
+        j.order = --first;
+      }
+    }
     this.save();
   }
 
@@ -431,8 +482,7 @@ class Manager extends EventEmitter {
   schedule() {
     if (this.stopping) return;
     const max = Math.max(1, this.settings.get().maxActive);
-    const queued = [...this.jobs.values()].filter((j) => j.status === "queued").sort((a, b) => a.created - b.created);
-    for (const j of queued) {
+    for (const j of this.queue()) {
       if (this.activeCount() >= max) break;
       this.start(j);
     }

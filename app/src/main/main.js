@@ -311,7 +311,10 @@ if (!app.requestSingleInstanceLock()) {
   handle("pause-all", () => manager.pauseAll());
   handle("resume-all", () => manager.resumeAll());
   handle("cancel", (id) => manager.cancel(id));
-  handle("remove", (id) => manager.remove(id));
+  // One id or a list of ids, for clearing a section of the list.
+  handle("remove", (ids) => manager.remove(Array.isArray(ids) ? ids.map(String) : String(ids)));
+  handle("move", (id, beforeId) => manager.move(String(id), beforeId ? String(beforeId) : null));
+  handle("move-to-top", (id) => manager.moveToTop(String(id)));
   handle("clear", (scope) => manager.clearFinished(scope));
   handle("open-file", (id) => {
     const j = manager.get(id);
