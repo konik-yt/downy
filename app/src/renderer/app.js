@@ -1,4 +1,3 @@
-/* global downy, icon, paintIcons */
 const $ = (id) => document.getElementById(id);
 const state = {
   downloads: [],
@@ -492,6 +491,8 @@ async function getFormats(url) {
     renderPicker();
     defaultHint();
   } finally {
+    // A newer request owns the button now, and an error from this stale one is dropped.
+    // eslint-disable-next-line no-unsafe-finally
     if (req !== formatsRequest) return;
     send.disabled = false;
     send.classList.remove("busy");

@@ -8,7 +8,9 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis",
-    "dist:dir": "electron-builder --win --dir"
+    "dist:dir": "electron-builder --win --dir",
+    "lint": "cd .. && eslint --config app/eslint.config.js app extension",
+    "test": "node --test \"test/*.test.js\""
   },
   "build": {
     "appId": "dev.downy.app",
@@ -63,7 +65,10 @@
     "electron-updater": "^6.8.11"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "electron": "^38.8.6",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "eslint": "^10.12.0",
+    "globals": "^17.14.0"
   }
 }
