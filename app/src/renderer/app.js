@@ -682,9 +682,12 @@ function renderFoot(view) {
   const foot = $("foot");
   const today = state.downloads.filter((d) => d.status === "done" && isToday(d.finished));
   const pickable = view === "busy" && !state.select ? groups(view).flatMap((g) => g.items).filter(canPick) : [];
-  foot.hidden = view !== "busy" || (!today.length && pickable.length < 2);
+  // With files running, Resume all is not on the status, so paused files get it here.
+  const running = state.downloads.some((d) => LIVE.has(d.status) || d.status === "queued");
+  const paused = running && !state.select ? state.downloads.filter((d) => d.status === "paused").length : 0;
+  foot.hidden = view !== "busy" || (!today.length && pickable.length < 2 && !paused);
   if (foot.hidden) return;
-  const sig = `${today.length}|${sum(today, (d) => d.expected)}|${pickable.length > 1}`;
+  const sig = `${today.length}|${sum(today, (d) => d.expected)}|${pickable.length > 1}|${paused}`;
   foot._pick = pickable;
   if (foot.dataset.sig === sig) return;
   foot.dataset.sig = sig;
@@ -698,6 +701,14 @@ function renderFoot(view) {
     parts.push(tick, el("b", "", `${today.length} finished today`), el("span", "", size(sum(today, (d) => d.expected))), show);
   }
   parts.push(el("span", "foot-gap"));
+  if (paused) {
+    const b = el("button", "sec-act");
+    b.type = "button";
+    b.innerHTML = icon("play");
+    b.append(`Resume ${paused} paused`);
+    b.onclick = () => call(downy.resumeAll);
+    parts.push(b);
+  }
   if (pickable.length > 1) {
     const b = el("button", "sec-act");
     b.type = "button";
