@@ -217,7 +217,7 @@ class Manager extends EventEmitter {
       stream: current ? { role: current.role, index: j.streams.indexOf(current) + 1, count: j.streams.length } : null,
       segments, connections: segments.filter((s) => s.live).length || (rt?.proc ? this.settings.get().connections : 0),
       postProgress: j.postProgress || 0, resumable: j.resumable,
-      batch: j.batch || null, batchIndex: j.batchIndex || 0, batchAt: j.batchAt || 0,
+      batch: j.batch || null, batchIndex: j.batchIndex || 0, batchAt: j.batchAt || 0, batchMode: j.batch ? j.batchMode || "one" : null,
     };
   }
 
@@ -269,17 +269,39 @@ class Manager extends EventEmitter {
 
   // custom: { dir, name } from the confirm window. dir is an absolute folder; name has no folder in it.
   commit(job, custom = {}) {
-    if (job.cookies) this.cookies.set(job.id, job.cookies);
-    delete job.cookies;
-    if (custom.dir && path.isAbsolute(String(custom.dir))) job.customDir = path.resolve(String(custom.dir));
-    if (custom.name && cleanName(custom.name)) job.customName = cleanName(custom.name);
-    if (job.customName && job.kind === "file") job.title = job.filename = this.targetName(job);
+    this.prepare(job, custom);
     job.order = this.lastOrder() + 1;
     this.jobs.set(job.id, job);
     this.save();
     this.changed();
     this.schedule();
     return this.public(job);
+  }
+
+  prepare(job, custom) {
+    if (job.cookies) this.cookies.set(job.id, job.cookies);
+    delete job.cookies;
+    if (custom.dir && path.isAbsolute(String(custom.dir))) job.customDir = path.resolve(String(custom.dir));
+    if (custom.name && cleanName(custom.name)) job.customName = cleanName(custom.name);
+    if (job.customName && job.kind === "file") job.title = job.filename = this.targetName(job);
+  }
+
+  // Adds drafts from the confirm window as one batch, in the order given, before any of them starts.
+  // mode "one" runs them one at a time, "all" as many at once as maxActive allows.
+  commitBatch(jobs, custom = {}, mode = "one") {
+    if (!jobs.length) throw new Error("There is nothing to download");
+    const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const at = Date.now();
+    let order = this.lastOrder();
+    jobs.forEach((job, k) => {
+      this.prepare(job, { dir: custom.dir });
+      Object.assign(job, { batch: id, batchIndex: k + 1, batchAt: at, batchMode: mode === "all" ? "all" : "one", order: ++order });
+      this.jobs.set(job.id, job);
+    });
+    this.save();
+    this.changed();
+    this.schedule();
+    return { batch: id, downloads: jobs.map((j) => this.public(j)) };
   }
 
   // Where a draft would be saved, without creating anything.
@@ -422,7 +444,7 @@ class Manager extends EventEmitter {
 
   // Takes waiting, paused and failed files, in the order they have in the queue.
   // A file that was in another batch moves to the new one. Returns the batch id.
-  startBatch(ids) {
+  startBatch(ids, mode = "one") {
     const picked = [...new Set([].concat(ids))].map((id) => this.jobs.get(id))
       .filter((j) => j && BATCHABLE.has(j.status) && !this.runtime.has(j.id))
       .sort(byOrder);
@@ -430,7 +452,9 @@ class Manager extends EventEmitter {
     const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     const at = Date.now();
     let order = this.lastOrder();
-    picked.forEach((j, k) => Object.assign(j, { batch: id, batchIndex: k + 1, batchAt: at, status: "queued", error: "", order: ++order }));
+    picked.forEach((j, k) => Object.assign(j, {
+      batch: id, batchIndex: k + 1, batchAt: at, batchMode: mode === "all" ? "all" : "one", status: "queued", error: "", order: ++order,
+    }));
     this.save();
     this.changed();
     this.schedule();
@@ -460,6 +484,7 @@ class Manager extends EventEmitter {
       delete j.batch;
       delete j.batchIndex;
       delete j.batchAt;
+      delete j.batchMode;
     }
     this.save();
     this.changed();
@@ -546,15 +571,17 @@ class Manager extends EventEmitter {
     return [...this.jobs.values()].filter((j) => ACTIVE.has(j.status)).length;
   }
 
-  // A batch takes one slot at most. When the line reaches one of its files, the batch
-  // starts its own next file, the waiting one with the lowest place in the batch.
+  // A one-at-a-time batch takes one slot at most. When the line reaches one of its files,
+  // the batch starts its own next file, the waiting one with the lowest place in the batch.
+  // An all-together batch runs like any other waiting files.
   schedule() {
     if (this.stopping) return;
     const max = Math.max(1, this.settings.get().maxActive);
-    const busy = new Set([...this.jobs.values()].filter((j) => j.batch && ACTIVE.has(j.status)).map((j) => j.batch));
+    const serial = (j) => j.batch && j.batchMode !== "all";
+    const busy = new Set([...this.jobs.values()].filter((j) => serial(j) && ACTIVE.has(j.status)).map((j) => j.batch));
     for (const j of this.queue()) {
       if (this.activeCount() >= max) break;
-      if (!j.batch) {
+      if (!serial(j)) {
         this.start(j);
         continue;
       }

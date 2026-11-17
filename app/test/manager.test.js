@@ -334,3 +334,27 @@ test("a batch downloads real files one by one and reports what failed", async (t
   assert.deepEqual(busyAtStart, [0, 0, 0]);
   assert.deepEqual(m.batchJobs(id).map((j) => j.status), ["done", "error", "done"]);
 });
+
+test("an all together batch runs as many files at once as the setting allows", (t) => {
+  const rows = queuedRows(5).map((r) => ({ ...r, status: "paused" }));
+  const { m } = manager(t, { saved: rows, settings: { maxActive: 3 } });
+  const started = recordStarts(m);
+  const id = m.startBatch(["q1", "q2", "q3", "q4"], "all");
+  assert.deepEqual(started, ["q1", "q2", "q3"]);
+  assert.equal(m.list().find((d) => d.id === "q1").batchMode, "all");
+  m.dismissBatch(id);
+  assert.equal(m.list().find((d) => d.id === "q1").batchMode, null);
+});
+
+test("commitBatch adds drafts as one batch in the given order before any of them starts", (t) => {
+  const { m } = manager(t, { settings: { maxActive: 3 } });
+  const draft = (id) => ({ id, title: `${id}.bin`, filename: `${id}.bin`, kind: "file", source: "web", ext: "bin", status: "queued", mode: "segmented", streams: [], downloaded: 0, expected: 10, created: Date.now(), cookies: "sid=1" });
+  const started = recordStarts(m);
+  const { batch, downloads } = m.commitBatch([draft("c"), draft("a"), draft("b")], { dir: "" }, "one");
+  assert.deepEqual(downloads.map((d) => [d.id, d.batchIndex]), [["c", 1], ["a", 2], ["b", 3]]);
+  assert.deepEqual(started, ["c"]);
+  assert.deepEqual(m.batchJobs(batch).map((j) => j.id), ["c", "a", "b"]);
+  assert.equal(m.cookies.get("a"), "sid=1");
+  assert.equal(m.get("a").cookies, undefined);
+  assert.throws(() => m.commitBatch([]), /nothing to download/);
+});
