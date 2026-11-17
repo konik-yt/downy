@@ -10,16 +10,17 @@
 <body>
 <form class="card" id="card" autocomplete="off">
   <header class="head">
-    <div class="thumb" id="thumbBox"><img id="thumb" alt=""><span class="thumb-icon" data-icon="file"></span></div>
+    <div class="thumb" id="thumbBox"><img id="thumb" alt=""><span class="thumb-icon" id="thumbIcon" data-icon="file"></span><span class="count" id="count" hidden></span></div>
     <div class="meta">
       <div class="title" id="title"></div>
-      <div class="sub" id="sub"></div>
+      <div class="sub"><span id="sub"></span><span class="live" id="live" hidden><i></i>Collecting until you press Download</span></div>
     </div>
     <button type="button" class="x" id="close" aria-label="Cancel" title="Cancel" data-icon="x"></button>
   </header>
 
   <div class="rows">
-    <label class="row" for="name">
+    <!-- One download -->
+    <label class="row" for="name" id="nameRow">
       <span class="k">Name</span>
       <span class="box name">
         <input id="name" spellcheck="false">
@@ -35,6 +36,20 @@
       </span>
     </label>
 
+    <!-- Several downloads, or a batch -->
+    <div class="files" id="files" hidden>
+      <div class="list" id="list" role="list" aria-label="Downloads in this window"></div>
+      <div class="drop" id="drop" hidden><span data-icon="plus"></span>Download anything in Chrome and it lands here</div>
+    </div>
+
+    <div class="row top" id="howRow" hidden>
+      <span class="k" id="howLabel">How</span>
+      <div class="seg" role="radiogroup" aria-labelledby="howLabel">
+        <button type="button" class="opt" role="radio" data-mode="one" data-icon="list"><span><b>One at a time</b><span>As a batch, top to bottom. A file that fails is skipped.</span></span></button>
+        <button type="button" class="opt" role="radio" data-mode="all" data-icon="zap"><span><b>All together</b><span id="allSub">3 at once, the rest wait in line.</span></span></button>
+      </div>
+    </div>
+
     <div class="row">
       <span class="k">Save to</span>
       <span class="box path" id="dir" title=""></span>
@@ -45,9 +60,16 @@
   <p class="error" id="error" role="alert" hidden></p>
 
   <footer class="foot">
-    <span class="hint">Enter to download, Esc to cancel</span>
+    <span class="hint" id="hint">Enter to download, Esc to cancel</span>
     <button type="button" class="btn" id="cancel">Cancel</button>
-    <button type="submit" class="btn primary" id="go" data-icon="arrowDown"><span>Download</span></button>
+    <span class="split">
+      <button type="submit" class="btn primary" id="go" data-icon="arrowDown"><span id="goText">Download</span></button>
+      <button type="button" class="btn primary more" id="more" aria-label="More ways to download" aria-haspopup="menu" aria-expanded="false" data-icon="chevron"></button>
+      <span class="menu" id="menu" role="menu" hidden>
+        <button type="button" class="mi" role="menuitem" id="menuGo" data-icon="arrowDown"><span><b>Download</b><span>Just this file</span></span></button>
+        <button type="button" class="mi" role="menuitem" id="menuBatch" data-icon="list"><span><b>Start a batch</b><span>Downloads you start next, from any site, join this window</span></span></button>
+      </span>
+    </span>
   </footer>
 </form>
 
