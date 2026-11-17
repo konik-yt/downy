@@ -9,71 +9,60 @@
 </head>
 <body>
 <form class="card" id="card" autocomplete="off">
-  <header class="head">
-    <div class="thumb" id="thumbBox"><img id="thumb" alt=""><span class="thumb-icon" id="thumbIcon" data-icon="file"></span><span class="count" id="count" hidden></span></div>
-    <div class="meta">
-      <div class="title" id="title"></div>
-      <div class="sub"><span id="sub"></span><span class="live" id="live" hidden><i></i>Collecting until you press Download</span></div>
+  <!-- One download: the picture first, then the name, the format and where it goes -->
+  <section class="one" id="one">
+    <div class="pic" id="pic">
+      <img id="thumb" alt="">
+      <span class="pic-tile" id="tile"><span data-icon="file" id="tileIcon"></span><b id="tileText"></b></span>
+      <span class="dur" id="dur" hidden></span>
+      <button type="button" class="x on-pic" id="close" aria-label="Cancel" title="Cancel" data-icon="x"></button>
     </div>
-    <button type="button" class="x" id="close" aria-label="Cancel" title="Cancel" data-icon="x"></button>
-  </header>
-
-  <div class="rows">
-    <!-- One download -->
-    <label class="row" for="name" id="nameRow">
-      <span class="k">Name</span>
+    <h1 class="title" id="title"></h1>
+    <p class="sub"><span id="sub"></span><button type="button" class="link" id="rename" aria-expanded="false" aria-controls="nameRow">Rename</button></p>
+    <label class="name-row" for="name" id="nameRow" hidden>
+      <span class="sr-only">File name</span>
       <span class="box name">
         <input id="name" spellcheck="false">
         <span class="ext" id="ext"></span>
       </span>
     </label>
+    <div class="tiles" id="tiles" role="radiogroup" aria-label="Format" hidden></div>
+  </section>
 
-    <label class="row" for="format" id="formatRow" hidden>
-      <span class="k">Format</span>
-      <span class="box select">
-        <select id="format"></select>
-        <span class="chev" data-icon="chevron"></span>
-      </span>
-    </label>
-
-    <!-- Several downloads, or a batch -->
-    <div class="files" id="files" hidden>
+  <!-- Several downloads, or a batch -->
+  <section class="group" id="group" hidden>
+    <div class="top">
+      <div class="top-text">
+        <p class="live" id="live" hidden><i></i>Collecting. Downloads you start in Chrome join this batch.</p>
+        <h1 class="title" id="gTitle"></h1>
+        <p class="sub" id="gSub"></p>
+      </div>
+      <button type="button" class="x" id="gClose" aria-label="Cancel all" title="Cancel all" data-icon="x"></button>
+    </div>
+    <div class="files" id="files">
       <div class="list" id="list" role="list" aria-label="Downloads in this window"></div>
       <div class="drop" id="drop" hidden><span data-icon="plus"></span>Download anything in Chrome and it lands here</div>
     </div>
-
-    <div class="row top" id="howRow" hidden>
-      <span class="k" id="howLabel">How</span>
-      <div class="seg" role="radiogroup" aria-labelledby="howLabel">
-        <button type="button" class="opt" role="radio" data-mode="one" data-icon="list"><span><b>One at a time</b><span>As a batch, top to bottom. A file that fails is skipped.</span></span></button>
-        <button type="button" class="opt" role="radio" data-mode="all" data-icon="zap"><span><b>All together</b><span id="allSub">3 at once, the rest wait in line.</span></span></button>
-      </div>
+    <div class="how" role="radiogroup" aria-label="How to run them">
+      <button type="button" class="opt" role="radio" data-mode="one" data-icon="list"><span><b>One at a time</b><span>Top to bottom. A file that fails is skipped.</span></span></button>
+      <button type="button" class="opt" role="radio" data-mode="all" data-icon="zap"><span><b>All together</b><span id="allSub">3 at once, the rest wait in line.</span></span></button>
     </div>
+  </section>
 
-    <div class="row">
-      <span class="k">Save to</span>
-      <span class="box path" id="dir" title=""></span>
-      <button type="button" class="btn" id="change">Change</button>
-    </div>
-  </div>
+  <p class="where"><span data-icon="folder"></span><span class="where-text" id="dir"></span><button type="button" class="link" id="change">Change</button></p>
 
   <p class="error" id="error" role="alert" hidden></p>
 
   <footer class="foot">
-    <span class="hint" id="hint">Enter to download, Esc to cancel</span>
-    <button type="button" class="btn" id="cancel">Cancel</button>
-    <span class="split">
-      <button type="submit" class="btn primary" id="go" data-icon="arrowDown"><span id="goText">Download</span></button>
-      <button type="button" class="btn primary more" id="more" aria-label="More ways to download" aria-haspopup="menu" aria-expanded="false" data-icon="chevron"></button>
-      <span class="menu" id="menu" role="menu" hidden>
-        <button type="button" class="mi" role="menuitem" id="menuGo" data-icon="arrowDown"><span><b>Download</b><span>Just this file</span></span></button>
-        <button type="button" class="mi" role="menuitem" id="menuBatch" data-icon="list"><span><b>Start a batch</b><span>Downloads you start next, from any site, join this window</span></span></button>
-      </span>
-    </span>
+    <button type="button" class="btn ghost" id="cancel" hidden>Cancel batch</button>
+    <button type="submit" class="btn primary go" id="go" data-icon="arrowDown"><span id="goText">Download</span></button>
+    <button type="button" class="btn" id="startBatch" data-icon="list" title="Downloads you start next, from any site, join this window">Start a batch</button>
   </footer>
+  <p class="tip" id="tip">Start a batch collects this and the next downloads from Chrome into one list</p>
 </form>
 
 <script src="icons.js"></script>
+<script src="names.js"></script>
 <script src="prompt.js"></script>
 </body>
 </html>

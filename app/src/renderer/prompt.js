@@ -1,5 +1,5 @@
-// The confirm window. With one download it asks for the name, the folder and, for a
-// video, the format. With several, or after "Start a batch", it lists them: they can be
+// The confirm window. With one download it shows the picture, the name, the format and
+// where it goes. With several, or after "Start a batch", it lists them: they can be
 // reordered, left out, and started one at a time or all together.
 const $ = (id) => document.getElementById(id);
 
@@ -12,6 +12,7 @@ let mode = "one"; // how several downloads run: "one" at a time or "all" togethe
 let order = []; // request ids, top to bottom
 const formats = {}; // request id -> the format picked on a video's row
 const seen = new Set(); // rows already shown, so only new arrivals light up
+let newest = null; // the request that arrived last while the window was open
 let drag = null;
 
 function size(n) {
@@ -38,11 +39,37 @@ function splitExt(name) {
   return [m[1], m[2] || ""];
 }
 
+// 1458 -> "24:18", 3725 -> "1:02:05"
+function clock(s) {
+  s = Math.round(s);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+// Keeps the start and the end of a long name, where files in a batch differ: "Detroit_Become…part01.rar".
+function middle(text, max = 34) {
+  if (text.length <= max) return text;
+  const tail = Math.min(14, Math.floor(max / 2.5));
+  return text.slice(0, max - tail - 1) + "…" + text.slice(-tail);
+}
+
+// A folder inside the download folder goes by its short name, like YouTube\1080p.
+function shortDir(path) {
+  const root = (view.root || "").replace(/[\\/]+$/, "");
+  if (root && path.toLowerCase().startsWith(root.toLowerCase() + "\\")) return path.slice(root.length + 1);
+  if (root && path.toLowerCase() === root.toLowerCase()) return root.split(/[\\/]/).slice(-2).join("\\");
+  return path;
+}
+
 const isGroup = () => view.collecting || view.entries.length > 1;
 const single = () => view.entries[0];
 const optionOf = (e, id) => e.options?.find((o) => o.id === id) || null;
 const entrySize = (e) => (e.kind === "file" ? e.size || 0 : optionOf(e, formats[e.id] || e.optionId)?.size || 0);
 const sorted = () => order.map((id) => view.entries.find((e) => e.id === id)).filter(Boolean);
+// The short name of a format on its tile: 1080p, 4K, MP3.
+const tileName = (o) => (o.kind !== "video" ? o.folder || o.kind.toUpperCase() : o.folder === "2160p" ? "4K" : o.folder);
 
 // ------------------------------------------------------------ one download
 
@@ -59,9 +86,8 @@ function applySingle() {
     if (!nameEdited) $("name").value = base;
     $("ext").textContent = ext;
   }
-  const o = optionOf(e, optionId);
-  const sizeText = e.kind === "file" ? size(e.size) : o?.sizeText || "";
-  $("sub").textContent = [e.site, o?.label || (e.ext ? e.ext.toUpperCase() : ""), sizeText].filter(Boolean).join("  ·  ");
+  $("sub").textContent = [e.site, e.kind === "file" ? size(e.size) : ""].filter(Boolean).join(", ");
+  for (const b of $("tiles").children) b.setAttribute("aria-checked", String(b.dataset.id === optionId));
   showDir();
 }
 
@@ -72,34 +98,62 @@ function renderSingle() {
   $("title").textContent = e.title;
   $("title").title = e.title;
   $("thumb").src = e.thumbnail || "";
-  $("thumbIcon").hidden = !!e.thumbnail;
-  setThumbIcon(e.kind === "video" ? "video" : "file");
-  if (e.kind === "video" && !$("format").options.length) {
-    const select = $("format");
-    let lastKind = null;
-    for (const o of e.options) {
-      // A blank, disabled line between the video and the audio formats.
-      if (lastKind === "video" && o.kind !== "video") select.append(Object.assign(new Option("", ""), { disabled: true }));
-      lastKind = o.kind;
-      select.append(new Option(o.sizeText ? `${o.label}  (${o.sizeText})` : o.label, o.id, false, o.id === optionId));
-    }
-    select.onchange = () => {
-      optionId = select.value;
-      applySingle();
-    };
+  $("pic").classList.toggle("file", e.kind === "file");
+  $("tile").hidden = !!e.thumbnail;
+  const tileIcon = $("tileIcon");
+  tileIcon.dataset.icon = e.kind === "video" ? "video" : "file";
+  paintIcons(tileIcon.parentElement);
+  $("tileText").textContent = e.kind === "file" ? (e.ext || "").toUpperCase().slice(0, 5) : "";
+  $("dur").hidden = !e.duration;
+  $("dur").textContent = e.duration ? clock(e.duration) : "";
+  const tiles = $("tiles");
+  tiles.hidden = e.kind !== "video";
+  if (e.kind === "video" && !tiles.children.length) {
+    // Audio first, then the videos from small to big, so the row reads left to right.
+    const opts = [...e.options.filter((o) => o.kind !== "video"), ...e.options.filter((o) => o.kind === "video").reverse()];
+    tiles.replaceChildren(...opts.map((o) => {
+      const b = el("button", "pick");
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.dataset.id = o.id;
+      b.title = o.label;
+      b.append(el("b", "", tileName(o)), el("span", "", o.sizeText || ""));
+      b.onclick = () => {
+        optionId = o.id;
+        applySingle();
+      };
+      b.onkeydown = (ev) => moveTile(ev, b);
+      return b;
+    }));
   }
-  $("formatRow").hidden = e.kind !== "video";
   applySingle();
 }
 
-// ------------------------------------------------- several downloads, or a batch
-
-function setThumbIcon(name) {
-  const icon = $("thumbIcon");
-  if (icon.dataset.icon === name) return;
-  icon.dataset.icon = name;
-  paintIcons(icon.parentElement);
+// Left and right arrows move along the format tiles, like a radio group.
+function moveTile(ev, b) {
+  if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+  ev.preventDefault();
+  const next = ev.key === "ArrowRight" ? b.nextElementSibling : b.previousElementSibling;
+  if (!next) return;
+  next.focus();
+  next.click();
 }
+
+function toggleRename() {
+  const row = $("nameRow");
+  row.hidden = !row.hidden;
+  $("rename").setAttribute("aria-expanded", String(!row.hidden));
+  $("rename").textContent = row.hidden ? "Rename" : "Keep the name";
+  if (!row.hidden) {
+    $("name").focus();
+    $("name").select();
+  } else if (nameEdited) {
+    nameEdited = false;
+    applySingle();
+  }
+}
+
+// ------------------------------------------------- several downloads, or a batch
 
 function renderGroup() {
   // Rows keep the order the user made. New arrivals go to the end.
@@ -111,20 +165,16 @@ function renderGroup() {
   let title;
   if (!view.collecting) title = `${n} files from ${entries[0].site}`;
   else if (n === 1) title = "New batch";
-  else title = `Batch of ${n} from ${sites.size === 1 ? entries[0].site : `${sites.size} sites`}`;
+  else title = batchName(entries).label;
   document.title = title;
-  $("title").textContent = title;
-  $("title").title = title;
-  $("thumb").src = "";
-  $("thumbIcon").hidden = false;
-  setThumbIcon(view.collecting ? "list" : "layers");
-  $("count").hidden = false;
-  $("count").textContent = String(n);
+  $("gTitle").textContent = title;
+  $("gTitle").title = title;
   const sizes = entries.map(entrySize);
   const total = sizes.reduce((a, b) => a + b, 0);
-  $("sub").textContent = total ? `${sizes.every(Boolean) ? "" : "About "}${size(total)} in all` : "";
+  const from = sites.size === 1 ? `From ${entries[0].site}` : `From ${sites.size} sites`;
+  $("gSub").textContent = total ? `${from}, ${sizes.every(Boolean) ? "" : "about "}${size(total)} in all` : from;
   $("live").hidden = !view.collecting;
-  document.querySelector(".card").classList.toggle("collecting", view.collecting);
+  $("card").classList.toggle("collecting", view.collecting);
 
   if (!drag) renderRows(entries);
   $("drop").hidden = !view.collecting;
@@ -134,42 +184,60 @@ function renderGroup() {
   $("go").dataset.icon = mode === "one" ? "list" : "zap";
   paintIcons($("go").parentElement);
   $("cancel").textContent = view.collecting ? "Cancel batch" : "Cancel all";
-  $("close").title = $("cancel").textContent;
-  $("hint").textContent = "Drag to change the order, Esc cancels all";
+  $("gClose").title = $("cancel").textContent;
+  $("gClose").setAttribute("aria-label", $("cancel").textContent);
   showDir();
 }
 
-function tileText(e) {
-  if (e.kind === "file") return (e.ext || "file").toUpperCase().slice(0, 4);
-  const o = optionOf(e, formats[e.id] || e.optionId);
-  return o?.kind === "video" ? "MP4" : o?.kind === "mp3" ? "MP3" : "M4A";
+function thumbOf(e) {
+  const th = el("span", "th");
+  if (e.kind === "video" && e.thumbnail) {
+    const img = el("img");
+    img.alt = "";
+    img.referrerPolicy = "no-referrer";
+    img.onerror = () => {
+      img.remove();
+      th.textContent = "MP4";
+    };
+    img.src = e.thumbnail;
+    th.append(img);
+  } else if (e.kind === "file") th.textContent = (e.ext || "file").toUpperCase().slice(0, 4);
+  else {
+    const o = optionOf(e, formats[e.id] || e.optionId);
+    th.textContent = o?.kind === "video" ? "MP4" : o?.kind === "mp3" ? "MP3" : "M4A";
+  }
+  return th;
 }
 
 function renderRows(entries) {
   const list = $("list");
+  for (const e of entries) {
+    if (!seen.has(e.id) && seen.size) newest = e.id;
+    seen.add(e.id);
+  }
   const rows = entries.map((e, k) => {
-    const row = el("div", "f");
+    const row = el("div", "f" + (e.id === newest ? " new" : ""));
     row.setAttribute("role", "listitem");
     row.dataset.id = e.id;
     row.draggable = true;
-    if (!seen.has(e.id) && seen.size) row.classList.add("new");
-    seen.add(e.id);
     const grip = el("button", "grip");
     grip.type = "button";
     grip.dataset.icon = "grip";
     grip.title = "Drag to change the order. With the keyboard, press Alt with the up or down arrow.";
     grip.setAttribute("aria-label", `Move ${e.title}`);
     grip.onkeydown = (ev) => moveByKey(ev, e.id);
-    const tile = el("span", "tile" + (e.kind === "video" ? " vid" : ""), tileText(e));
     const nm = el("span", "nm");
-    nm.append(el("b", "", e.title), el("span", "", e.site));
+    const where = el("span");
+    if (e.id === newest) where.append(el("span", "just", "Just added"), ", ");
+    where.append(e.site);
+    nm.append(el("b", "", e.kind === "file" ? middle(e.title) : e.title), where);
     nm.title = e.title;
     let side;
     if (e.kind === "video") {
       side = el("span", "fmt");
       const select = el("select");
       select.setAttribute("aria-label", `Format for ${e.title}`);
-      for (const o of e.options) select.append(new Option(o.sizeText ? `${o.label}, ${o.sizeText}` : o.label, o.id, false, o.id === (formats[e.id] || e.optionId)));
+      for (const o of e.options) select.append(new Option(o.sizeText ? `${tileName(o)}, ${o.sizeText}` : tileName(o), o.id, false, o.id === (formats[e.id] || e.optionId)));
       select.onchange = () => {
         formats[e.id] = select.value;
         renderGroup();
@@ -183,7 +251,7 @@ function renderRows(entries) {
     rm.title = "Leave this one out";
     rm.setAttribute("aria-label", `Leave out ${e.title}`);
     rm.onclick = () => leaveOut(e.id);
-    row.append(grip, el("span", "idx", String(k + 1)), tile, nm, side, rm);
+    row.append(grip, el("span", "idx", String(k + 1)), thumbOf(e), nm, side, rm);
     wireDrag(row);
     return row;
   });
@@ -236,11 +304,19 @@ function wireDrag(row) {
 
 function showDir() {
   const box = $("dir");
-  const soft = isGroup() && !dirEdited && !view.dir;
-  const text = soft ? "Sorted as usual: files in Downloads, videos by format" : dirEdited || !isGroup() ? dir : view.dir;
-  box.textContent = text;
-  box.title = soft ? "" : text;
-  box.classList.toggle("soft", soft);
+  box.replaceChildren();
+  if (dirEdited || !isGroup()) {
+    box.append("Saves to ", el("b", "", shortDir(dir)));
+    box.title = dir;
+    return;
+  }
+  // Several downloads go where Downy sorts them: files in Downloads, videos by format.
+  const videos = view.entries.some((e) => e.kind === "video");
+  const filesDir = view.dir || (view.root ? `${view.root.replace(/[\\/]+$/, "")}\\Downloads` : "");
+  if (view.entries.every((e) => e.kind === "video")) box.append("Saves to ", el("b", "", "YouTube"), ", in a folder per format");
+  else if (videos) box.append("Saves files to ", el("b", "", shortDir(filesDir) || "Downloads"), ", videos to ", el("b", "", "YouTube"));
+  else box.append("Saves to ", el("b", "", shortDir(filesDir) || "Downloads"));
+  box.title = filesDir;
 }
 
 function showError(text) {
@@ -252,21 +328,23 @@ function update(next) {
   const wasGroup = view && isGroup();
   view = next;
   const group = isGroup();
-  $("nameRow").hidden = group;
-  $("formatRow").hidden = true;
-  $("files").hidden = !group;
-  $("howRow").hidden = !group;
-  $("more").hidden = group;
-  $("count").hidden = !group;
-  $("live").hidden = true;
+  $("one").hidden = group;
+  $("group").hidden = !group;
+  $("cancel").hidden = !group;
+  $("startBatch").hidden = group;
+  $("tip").hidden = group;
   if (group) {
     if (!wasGroup) seen.add(single()?.id); // the first file was already on screen
     renderGroup();
-  } else renderSingle();
+  } else {
+    $("goText").textContent = "Download";
+    $("go").dataset.icon = "arrowDown";
+    paintIcons($("go").parentElement);
+    renderSingle();
+  }
 }
 
 async function submit() {
-  closeMenu();
   const go = $("go");
   go.disabled = true;
   showError("");
@@ -280,23 +358,7 @@ async function submit() {
   }
 }
 
-// ------------------------------------------------------------- the menu
-
-function openMenu() {
-  $("menu").hidden = false;
-  $("more").setAttribute("aria-expanded", "true");
-  $("menuGo").focus();
-}
-
-function closeMenu() {
-  if ($("menu").hidden) return false;
-  $("menu").hidden = true;
-  $("more").setAttribute("aria-expanded", "false");
-  return true;
-}
-
 async function startBatch() {
-  closeMenu();
   const res = await downy.promptBatch();
   if (!res.ok) return showError(res.error);
   update(res.data);
@@ -315,8 +377,9 @@ function fit() {
   downy.onPrompt(update);
 
   $("name").addEventListener("input", () => (nameEdited = true));
+  $("rename").onclick = toggleRename;
   $("change").onclick = async () => {
-    const r = await downy.promptChooseFolder(dir || view.dir);
+    const r = await downy.promptChooseFolder(dir || view.dir || view.root);
     if (r.ok && r.data) {
       dir = r.data;
       dirEdited = true;
@@ -333,28 +396,19 @@ function fit() {
     e.preventDefault();
     submit();
   });
-  $("more").onclick = () => ($("menu").hidden ? openMenu() : closeMenu());
-  $("menuGo").onclick = submit;
-  $("menuBatch").onclick = startBatch;
-  document.addEventListener("click", (e) => {
-    if (!e.target.closest(".split")) closeMenu();
-  });
+  $("startBatch").onclick = startBatch;
   $("cancel").onclick = () => downy.promptCancel();
   $("close").onclick = () => downy.promptCancel();
+  $("gClose").onclick = () => downy.promptCancel();
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !closeMenu()) downy.promptCancel();
-    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !$("menu").hidden) {
+    if (e.key === "Escape") downy.promptCancel();
+    // Enter downloads when nothing else has the focus, as it did when the name box had it.
+    if (e.key === "Enter" && (e.target === document.body || e.target === $("card")) && !$("go").disabled) {
       e.preventDefault();
-      const items = [$("menuGo"), $("menuBatch")];
-      items[(items.indexOf(document.activeElement) + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+      submit();
     }
   });
   // A dropped link or file must not open in the window.
   document.addEventListener("dragover", (e) => e.preventDefault());
   document.addEventListener("drop", (e) => e.preventDefault());
-  if (!isGroup()) {
-    const name = $("name");
-    name.focus();
-    name.select();
-  }
 })();
