@@ -9,7 +9,7 @@ const { app, BrowserWindow, screen, ipcMain, dialog } = require("electron");
 const { buildOptions, publicOptions } = require("./formats");
 const { fromApp } = require("./guard");
 
-const WIDTH = 620;
+const WIDTH = 540;
 const KEEP = 10 * 60 * 1000; // answered requests are forgotten after this
 
 function siteOf(url) {
@@ -82,7 +82,7 @@ class Prompts {
     return this.open({
       kind: "video", url, site: siteOf(url),
       view: {
-        kind: "video", title: info.title || url, thumbnail: info.thumbnail || "", site: siteOf(url),
+        kind: "video", title: info.title || url, thumbnail: info.thumbnail || "", site: siteOf(url), duration: info.duration || 0,
         options: publicOptions(options), optionId, targets,
       },
     });
@@ -137,12 +137,13 @@ class Prompts {
     win.once("ready-to-show", () => {
       win.show();
       win.focus();
-      // For testing, like the main window: a screenshot, then a script to run in the window.
+      // For testing, like the main window: a script to run in the window, then a screenshot.
       if (!app.isPackaged && process.env.DOWNY_SCREENSHOT) {
         setTimeout(async () => {
+          if (process.env.DOWNY_PROMPT_EVAL) await win.webContents.executeJavaScript(process.env.DOWNY_PROMPT_EVAL).catch(() => {});
+          await new Promise((r) => setTimeout(r, 600));
           const img = await win.webContents.capturePage();
           require("fs").writeFileSync(`${process.env.DOWNY_SCREENSHOT}-prompt-${box.entries[0]?.id}.png`, img.toPNG());
-          if (process.env.DOWNY_PROMPT_EVAL) win.webContents.executeJavaScript(process.env.DOWNY_PROMPT_EVAL);
         }, 1200);
       }
     });
@@ -166,6 +167,8 @@ class Prompts {
     return {
       collecting: box.collecting,
       maxActive: this.settings?.get().maxActive || 3,
+      // The download folder, so the window can name folders inside it the short way, like YouTube/1080p.
+      root: this.settings?.get().downloadDir || "",
       // Files all go to Downloads, so the window can name the folder. With videos it can't.
       dir: files ? box.entries[0]?.view.targets.file.dir || "" : "",
       entries: box.entries.map((e) => ({ id: e.id, ...e.view })),
