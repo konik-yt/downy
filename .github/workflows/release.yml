@@ -89,6 +89,12 @@ jobs:
         working-directory: app
         run: npm ci
 
+      - name: Lint and test
+        working-directory: app
+        run: |
+          npm run lint
+          npm test
+
       - name: Build the installer
         working-directory: app
         run: npx electron-builder --win nsis --publish never
@@ -137,7 +143,6 @@ jobs:
         run: |
           gh release create "v$VERSION" \
             "app/dist/Downy-Setup-$VERSION.exe" \
-\
             "app/dist/Downy-Setup-$VERSION.exe.blockmap" \
             app/dist/latest.yml \
             --target "$(git rev-parse HEAD)" \

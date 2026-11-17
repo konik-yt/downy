@@ -42,6 +42,8 @@ function markFromInternet(file, url, referrer) {
 
 function cleanName(name) {
   return String(name || "")
+    // Windows forbids control characters in file names.
+    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
