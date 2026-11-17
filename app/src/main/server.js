@@ -33,6 +33,8 @@ function startServer({ manager, cache, settings, tools, prompts, actions, token,
       headers["Access-Control-Allow-Origin"] = origin;
       headers.Vary = "Origin";
     }
+    // The version Downy bundles. An extension running an older one reloads itself to pick up the new files.
+    if (extensionVersion) headers["X-Downy-Extension"] = extensionVersion;
     res.writeHead(status, headers);
     res.end(body);
   };

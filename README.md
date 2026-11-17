@@ -95,7 +95,7 @@ Downy checks GitHub for a new release when it starts and every 4 hours. The inst
 
 Versions before 2.2 have no updater. Run the new `Downy-Setup-<version>.exe` over the old one once. Your settings, history and unfinished downloads stay in `%APPDATA%\Downy`.
 
-Downy keeps its copy of the extension in `%APPDATA%\Downy\Chrome extension` and refreshes it after each update, so Chrome picks up the new extension the next time it starts. You can also click the reload button on Downy in `chrome://extensions` to load it right away. The extension only works from that folder, because that is where Downy writes the token the API asks for. If you loaded it from a zip or from this repo, Downy asks you to switch to its own copy.
+Downy keeps its copy of the extension in `%APPDATA%\Downy\Chrome extension` and refreshes it after each update. Every answer from Downy carries the version it bundles in an `X-Downy-Extension` header. When that differs from the running extension, the extension waits until no request or download handover is in progress and reloads itself, which makes Chrome read the new files. It reloads at most once per version, so a failed copy can't cause a reload loop. Tabs that were open before the reload need a refresh before the video button works again. Extensions from Downy 2.2.1 and earlier lack this check, so after updating from one of them, click the reload button on Downy in `chrome://extensions` once or restart Chrome. The extension only works from that folder, because that is where Downy writes the token the API asks for. If you loaded it from a zip or from this repo, Downy asks you to switch to its own copy.
 
 ## Build from source
 

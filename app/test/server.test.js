@@ -122,6 +122,8 @@ test("an extension without the right token gets 401 and the version it sent", as
   const res = await request(port, { path: "/api/status?ext=2.1.0", headers: { Origin: EXT, "X-Downy-Token": "wrong" } });
   assert.equal(res.status, 401);
   assert.match(res.json.error, /chrome:\/\/extensions/);
+  // An old copy hears about the new version even without the token, so it can reload itself.
+  assert.equal(res.headers["x-downy-extension"], "2.2.1");
   await request(port, { path: "/api/status?ext=2.2.1", headers: { Origin: EXT } });
   await request(port, { path: "/api/status?ext=<b>hi</b>", headers: { Origin: EXT } });
   // An older version means a stale copy; the current one or junk text means no version.
@@ -134,6 +136,7 @@ test("the extension can read status and downloads", async (t) => {
   assert.equal(res.status, 200);
   assert.equal(res.headers["access-control-allow-origin"], EXT);
   assert.equal(res.headers["cache-control"], "no-store");
+  assert.equal(res.headers["x-downy-extension"], "2.2.1");
   assert.deepEqual(res.json, { ok: true, version: 2, app: true, downloadDir: "D:\\Downy", ytdlp: true, ffmpeg: false, jsRuntime: true });
   assert.deepEqual((await ext("/api/downloads")).json, { downloads: [{ id: "a" }] });
   assert.deepEqual(calls[0], ["extensionSeen", "2.2.1"]);

@@ -33,6 +33,7 @@ async function call(path, body, retry = true) {
     err.offline = true;
     throw err;
   }
+  noteBundled(res.headers.get("X-Downy-Extension"));
   if (res.status === 401 && retry) {
     token = null;
     return call(path, body, false);
@@ -40,6 +41,48 @@ async function call(path, body, retry = true) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Downy error ${res.status}`);
   return data;
+}
+
+// ------------------------------------------------------- Updating itself
+
+// Each Downy update copies the new extension into the folder Chrome loads it from,
+// but Chrome keeps running the old code until the extension reloads. Downy sends the
+// version it bundles with every answer, and when that differs from this one the
+// extension reloads itself once nothing is in flight. Reloading makes Chrome read the
+// folder again. reloadedFor allows one reload per version, so a copy that failed and
+// left the old files in place can't start a reload loop.
+let bundled = null;
+let busy = 0;
+let reloadTimer = null;
+
+function noteBundled(v) {
+  if (!v || !/^\d+(\.\d+){0,3}$/.test(v)) return;
+  bundled = v;
+  maybeReload();
+}
+
+function maybeReload() {
+  if (!bundled || bundled === VERSION || busy || reloadTimer) return;
+  // The wait lets the answer that brought the version reach the page first.
+  reloadTimer = setTimeout(async () => {
+    reloadTimer = null;
+    if (busy || bundled === VERSION) return;
+    const { reloadedFor } = await chrome.storage.local.get("reloadedFor");
+    if (reloadedFor === bundled) return;
+    await chrome.storage.local.set({ reloadedFor: bundled });
+    chrome.runtime.reload();
+  }, 1000);
+}
+
+// Counts work in progress, such as a download being handed over, so a reload never cuts one off.
+async function track(promise) {
+  busy++;
+  try {
+    return await promise;
+  } finally {
+    busy--;
+    maybeReload();
+  }
 }
 
 async function handle(msg) {
@@ -156,7 +199,7 @@ async function takeOver(item) {
 // This event comes with Chrome's file name for the download (including names set
 // by a page's download attribute), which Downy then uses too.
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  takeOver(item).then(
+  track(takeOver(item)).then(
     (taken) => {
       if (!taken) suggest();
     },
@@ -166,7 +209,7 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-  handle(msg).then(
+  track(handle(msg)).then(
     (data) => reply({ ok: true, data }),
     (err) => reply({ ok: false, error: err.message, offline: !!err.offline }),
   );
