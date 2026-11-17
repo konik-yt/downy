@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld("downy", {
   resumeAll: call("resume-all"),
   cancel: call("cancel"),
   remove: call("remove"),
+  move: call("move"),
+  moveToTop: call("move-to-top"),
   clear: call("clear"),
   openFile: call("open-file"),
   reveal: call("reveal"),
