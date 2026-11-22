@@ -78,6 +78,19 @@ function jsRuntimeArgs() {
   return [];
 }
 
+// The only way to build a yt-dlp command. --ignore-config keeps a yt-dlp.conf in the save
+// folder or the profile from changing what runs. After "--" yt-dlp reads the page as a URL
+// even if it starts with "-". With an info file there is no URL at all.
+function ytdlpCommand(options, { url, infoFile }) {
+  const bin = find("yt-dlp");
+  if (!bin) throw new Error("yt-dlp was not found. Open Settings in Downy and click Install tools.");
+  let target;
+  if (infoFile) target = ["--load-info-json", infoFile];
+  else if (/^https?:$/.test(URL.parse(String(url))?.protocol)) target = ["--", url];
+  else throw new Error("Downy can only read http and https pages");
+  return { bin, args: ["--ignore-config", ...options, ...jsRuntimeArgs(), ...target] };
+}
+
 function status() {
   return {
     ytdlp: find("yt-dlp"),
@@ -96,4 +109,4 @@ function ytdlpVersion() {
   }
 }
 
-module.exports = { find, resetCache, jsRuntimeArgs, status, ytdlpVersion };
+module.exports = { find, resetCache, ytdlpCommand, status, ytdlpVersion };
