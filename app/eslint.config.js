@@ -22,12 +22,30 @@ const rules = {
   "no-useless-assignment": "off",
 };
 
+// Each entry is a mistake Downy shipped before. The message names the fix.
+const mainRules = {
+  ...rules,
+  "no-restricted-syntax": ["error",
+    {
+      selector: "MemberExpression[object.object.name='process'][object.property.name='env'][property.name=/^DOWNY_/], MemberExpression[object.object.name='process'][object.property.name='env'][property.value=/^DOWNY_/]",
+      message: "Read DOWNY_* variables with testVar() from src/main/dev.js. It ignores the testing ones in an installed build.",
+    },
+  ],
+};
+
 module.exports = [
   // Paths below are from the repository root. The video folder has its own config.
   { basePath: ROOT, ignores: ["**/node_modules/**", "app/dist/**", "video/**"] },
   {
     basePath: ROOT,
-    files: ["app/src/main/**/*.js", "app/test/**/*.js", "app/eslint.config.js"],
+    files: ["app/src/main/**/*.js"],
+    ignores: ["app/src/main/dev.js"],
+    languageOptions: { ecmaVersion: 2024, sourceType: "commonjs", globals: globals.node },
+    rules: mainRules,
+  },
+  {
+    basePath: ROOT,
+    files: ["app/src/main/dev.js", "app/test/**/*.js", "app/eslint.config.js"],
     languageOptions: { ecmaVersion: 2024, sourceType: "commonjs", globals: globals.node },
     rules,
   },

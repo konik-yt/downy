@@ -3,6 +3,7 @@
 // the user clicks Restart to update.
 const { app } = require("electron");
 const { EventEmitter } = require("events");
+const { testVar } = require("./dev");
 
 const OWNER = "konik-yt";
 const REPO = "downy";
@@ -20,8 +21,8 @@ class Updater extends EventEmitter {
     const { autoUpdater } = require("electron-updater");
     this.au = autoUpdater;
     // For testing: DOWNY_UPDATE_URL points at a folder with latest.yml and the setup exe.
-    autoUpdater.setFeedURL(process.env.DOWNY_UPDATE_URL
-      ? { provider: "generic", url: process.env.DOWNY_UPDATE_URL }
+    autoUpdater.setFeedURL(testVar("DOWNY_UPDATE_URL")
+      ? { provider: "generic", url: testVar("DOWNY_UPDATE_URL") }
       : { provider: "github", owner: OWNER, repo: REPO });
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = false; // main.js installs after saving the downloads

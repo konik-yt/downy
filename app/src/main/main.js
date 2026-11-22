@@ -11,14 +11,12 @@ const { Updater } = require("./updater");
 const { Installer } = require("./installer");
 const { Prompts } = require("./prompt");
 const { fromApp, lockDown } = require("./guard");
+const { testVar } = require("./dev");
 
 const ASSETS = path.join(__dirname, "..", "renderer", "assets");
 
 app.setAppUserModelId("dev.downy.app");
-// For testing: keep data apart from the real profile, and save screenshots of the window.
-// Only when run from source, so nothing can point an installed Downy at other data or run scripts in it.
-const DEV = !app.isPackaged;
-if (DEV && process.env.DOWNY_USER_DATA) app.setPath("userData", process.env.DOWNY_USER_DATA);
+if (testVar("DOWNY_USER_DATA")) app.setPath("userData", testVar("DOWNY_USER_DATA"));
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -44,7 +42,7 @@ if (!app.requestSingleInstanceLock()) {
 
   function createWindow() {
     // For testing: DOWNY_WINDOW_SIZE=960x700 opens the window at another size.
-    const [w, h] = (DEV && /^\d+x\d+$/.test(process.env.DOWNY_WINDOW_SIZE || "") ? process.env.DOWNY_WINDOW_SIZE : "1180x760").split("x").map(Number);
+    const [w, h] = (/^\d+x\d+$/.test(testVar("DOWNY_WINDOW_SIZE") || "") ? testVar("DOWNY_WINDOW_SIZE") : "1180x760").split("x").map(Number);
     win = new BrowserWindow({
       width: w,
       height: h,
@@ -67,17 +65,17 @@ if (!app.requestSingleInstanceLock()) {
     win.once("ready-to-show", () => {
       if (!startHidden || !settings.get().onboarded) win.show(); // the first run always shows the welcome screen
     });
-    if (DEV && process.env.DOWNY_SCREENSHOT) {
+    if (testVar("DOWNY_SCREENSHOT")) {
       const shoot = async (n) => {
         const img = await win.webContents.capturePage();
-        fs.writeFileSync(`${process.env.DOWNY_SCREENSHOT}-${n}.png`, img.toPNG());
+        fs.writeFileSync(`${testVar("DOWNY_SCREENSHOT")}-${n}.png`, img.toPNG());
       };
       let n = 0;
       win.webContents.on("console-message", (e) => console.log("[renderer]", e.message));
       win.webContents.once("did-finish-load", () => {
-        if (process.env.DOWNY_EVAL) setTimeout(() => win.webContents.executeJavaScript(process.env.DOWNY_EVAL), 800);
+        if (testVar("DOWNY_EVAL")) setTimeout(() => win.webContents.executeJavaScript(testVar("DOWNY_EVAL")), 800);
         setTimeout(() => shoot(n++), 1500);
-        setInterval(() => shoot(n++), Number(process.env.DOWNY_SCREENSHOT_EVERY || 4000));
+        setInterval(() => shoot(n++), Number(testVar("DOWNY_SCREENSHOT_EVERY") || 4000));
       });
     }
     win.on("close", (e) => {

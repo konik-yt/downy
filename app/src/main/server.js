@@ -2,9 +2,10 @@
 const http = require("http");
 const crypto = require("crypto");
 const { isHttpUrl, buildOptions, publicOptions } = require("./formats");
+const { testVar } = require("./dev");
 
 const HOST = "127.0.0.1";
-const PORT = Number(process.env.DOWNY_PORT || 9614);
+const PORT = Number(testVar("DOWNY_PORT") || 9614);
 const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 
 function startServer({ manager, cache, settings, tools, prompts, actions, token, extensionVersion }) {
