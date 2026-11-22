@@ -1,6 +1,3 @@
-// Installs yt-dlp, ffmpeg and Deno with winget for people who don't have them,
-// and keeps a winget yt-dlp current, since YouTube changes often and old
-// versions stop working. tools.js already looks in winget's folder.
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
@@ -17,7 +14,6 @@ const UPDATE_EVERY = 24 * 60 * 60 * 1000;
 const UNITS = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3 };
 // winget draws its progress bar as text, like "  12.0 MB / 23.4 MB".
 const PROGRESS_RE = /([\d.]+)\s*(B|KB|MB|GB)\s*\/\s*([\d.]+)\s*(B|KB|MB|GB)/;
-// winget exits with this when the package is already installed and has no update.
 const NO_UPDATE = [0x8a15002b, -1978335189];
 
 function winget(args, onLine) {
@@ -57,7 +53,6 @@ class Installer extends EventEmitter {
   constructor(dataDir) {
     super();
     this.stamp = path.join(dataDir, "yt-dlp-checked");
-    // { running, tool, label, received, total, error, done: [names] }
     this.state = { running: false, tool: null, label: "", received: 0, total: 0, error: null, done: [] };
   }
 
@@ -66,7 +61,6 @@ class Installer extends EventEmitter {
     this.emit("change", this.state);
   }
 
-  // Tools that Downy needs and can't find. A JavaScript runtime counts as found when Node is installed.
   missing() {
     const s = tools.status();
     return [!s.ytdlp && "yt-dlp", !s.ffmpeg && "ffmpeg", !s.jsRuntime && "deno"].filter(Boolean);
@@ -104,7 +98,6 @@ class Installer extends EventEmitter {
     });
   }
 
-  // Once a day, upgrades yt-dlp when it came from winget. A copy from elsewhere is left to its owner.
   async updateYtdlp() {
     const bin = tools.status().ytdlp;
     if (!bin || !/[\\/]WinGet[\\/]/i.test(bin) || this.state.running) return;

@@ -1,11 +1,8 @@
-// Every Downy window gets the full window.downy API from preload.js, so only
-// Downy's own pages may run in them or talk to the main process.
 const path = require("path");
 const { fileURLToPath } = require("url");
 
 const RENDERER = path.join(__dirname, "..", "renderer");
 
-// True for a file: URL of a page inside the renderer folder.
 function isAppPage(url) {
   try {
     const u = new URL(url);
@@ -17,14 +14,11 @@ function isAppPage(url) {
   }
 }
 
-// An IPC event from the top frame of one of Downy's own pages.
 function fromApp(e) {
   const frame = e.senderFrame;
   return !!frame && frame === e.sender.mainFrame && isAppPage(frame.url);
 }
 
-// The only way to answer a page's IPC call, so no handler can skip the sender check.
-// fn gets the event and the call's arguments. What it returns or throws goes back as { ok, data } or { ok, error }.
 function handle(name, fn) {
   require("electron").ipcMain.handle(name, async (e, ...args) => {
     try {
@@ -36,7 +30,6 @@ function handle(name, fn) {
   });
 }
 
-// Like handle(), for messages that get no answer.
 function listen(name, fn) {
   require("electron").ipcMain.on(name, (e, ...args) => {
     if (fromApp(e)) fn(e, ...args);

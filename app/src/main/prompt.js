@@ -1,8 +1,3 @@
-// The small window that asks before a download from Chrome starts, near the top
-// of the screen like a quick entry bar. It shows the file name, the folder and,
-// for a video, the format, and starts the download when the user clicks Download.
-// It can also collect several downloads and start them as one batch.
-// The extension follows each request by its id until it is started or cancelled.
 const path = require("path");
 const crypto = require("crypto");
 const { BrowserWindow, screen, dialog } = require("electron");
@@ -11,7 +6,7 @@ const guard = require("./guard");
 const { testVar } = require("./dev");
 
 const WIDTH = 540;
-const KEEP = 10 * 60 * 1000; // answered requests are forgotten after this
+const KEEP = 10 * 60 * 1000;
 
 function siteOf(url) {
   try {
@@ -21,9 +16,6 @@ function siteOf(url) {
   }
 }
 
-// One window can hold several downloads. Files from the site of an open window join it,
-// and after "Start a batch" every download Downy catches joins it, from any site.
-// Each download keeps its own request id, so the extension can follow it.
 class Prompts {
   constructor({ manager, cache, icon, onStart, settings }) {
     this.manager = manager;
@@ -31,8 +23,8 @@ class Prompts {
     this.icon = icon;
     this.onStart = onStart;
     this.settings = settings;
-    this.items = new Map(); // request id -> { id, state, downloadId, kind, url, site, draft, view }
-    this.boxes = new Set(); // open windows: { win, entries, collecting, site, busy }
+    this.items = new Map();
+    this.boxes = new Set();
 
     const handle = (name, fn) => guard.handle(name, (e, ...args) => {
       const box = this.boxOf(e.sender);
@@ -67,7 +59,6 @@ class Prompts {
     return [...this.boxes].find((b) => b.win?.webContents === sender);
   }
 
-  // A video from the extension's quality menu. optionId is the format picked there.
   async openVideo(url, optionId) {
     const { info } = await this.cache.get(url);
     const options = buildOptions(info);
@@ -83,7 +74,6 @@ class Prompts {
     });
   }
 
-  // A Chrome download. The link is checked first, so a link Downy can't use stays in Chrome.
   async openFile(spec) {
     const draft = await this.manager.draftFile(spec);
     return this.open({
@@ -95,8 +85,6 @@ class Prompts {
     });
   }
 
-  // Where a new download goes: the newest window that collects a batch, else a window
-  // that holds only files from the same site, else a window of its own.
   open(item) {
     item.id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     item.state = "open";
@@ -132,7 +120,6 @@ class Prompts {
     win.once("ready-to-show", () => {
       win.show();
       win.focus();
-      // For testing, like the main window: a script to run in the window, then a screenshot.
       if (testVar("DOWNY_SCREENSHOT")) {
         setTimeout(async () => {
           if (testVar("DOWNY_PROMPT_EVAL")) await win.webContents.executeJavaScript(testVar("DOWNY_PROMPT_EVAL")).catch(() => {});
@@ -149,22 +136,18 @@ class Prompts {
     });
   }
 
-  // Answered requests are kept a while so the extension can still ask how they went.
   forget(item) {
     if (item.state === "open") item.state = "cancelled";
     item.draft = null;
     setTimeout(() => this.items.delete(item.id), KEEP);
   }
 
-  // What the window shows. A window with one download and no batch is the plain form.
   view(box) {
     const files = box.entries.every((e) => e.kind === "file");
     return {
       collecting: box.collecting,
       maxActive: this.settings?.get().maxActive || 3,
-      // The download folder, so the window can name folders inside it the short way, like YouTube/1080p.
       root: this.settings?.get().downloadDir || "",
-      // Files all go to Downloads, so the window can name the folder. With videos it can't.
       dir: files ? box.entries[0]?.view.targets.file.dir || "" : "",
       entries: box.entries.map((e) => ({ id: e.id, ...e.view })),
     };
@@ -174,7 +157,6 @@ class Prompts {
     box.win?.webContents.send("prompt:update", this.view(box));
   }
 
-  // The x on a row leaves that download out, and an empty window closes.
   leaveOut(box, id) {
     const item = box.entries.find((e) => e.id === id);
     if (!item) return this.view(box);
@@ -185,9 +167,6 @@ class Prompts {
     return this.view(box);
   }
 
-  // choice for one download: { optionId, dir, name }.
-  // For several, or a batch: { order, formats, mode, dir }, where order lists request ids
-  // top to bottom and formats maps a video's request id to the format picked on its row.
   async submit(box, choice) {
     if (box.busy) throw new Error("These downloads were already answered.");
     box.busy = true;

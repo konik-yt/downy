@@ -1,4 +1,3 @@
-// Local HTTP API on 127.0.0.1:9614 for the Chrome extension.
 const http = require("http");
 const crypto = require("crypto");
 const { isHttpUrl, buildOptions, publicOptions } = require("./formats");
@@ -10,7 +9,6 @@ const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 
 function startServer({ manager, cache, settings, tools, prompts, actions, token, extensionVersion }) {
   // Checking Host blocks DNS rebinding, and checking Origin blocks other websites.
-  // A request with no Origin can only be a GET, and every /api/ call also needs the token.
   const allowed = (req) => {
     if (!ALLOWED_HOSTS.has(req.headers.host)) return false;
     const origin = req.headers.origin;
@@ -19,7 +17,7 @@ function startServer({ manager, cache, settings, tools, prompts, actions, token,
   };
 
   // Other Chrome extensions also send a chrome-extension:// Origin. Only Downy's own copy
-  // of the extension can read token.json, which ExtensionCopy writes next to its files.
+  // of the extension can read token.json.
   const expected = Buffer.from(token);
   const hasToken = (req) => {
     const got = Buffer.from(String(req.headers["x-downy-token"] || ""));
@@ -34,13 +32,11 @@ function startServer({ manager, cache, settings, tools, prompts, actions, token,
       headers["Access-Control-Allow-Origin"] = origin;
       headers.Vary = "Origin";
     }
-    // The version Downy bundles. An extension running an older one reloads itself to pick up the new files.
     if (extensionVersion) headers["X-Downy-Extension"] = extensionVersion;
     res.writeHead(status, headers);
     res.end(body);
   };
 
-  // Resolves null when the body is too big or the request breaks off.
   // Buffers are joined before decoding so a character split across chunks stays whole.
   const readBody = (req) => new Promise((resolve) => {
     const chunks = [];
@@ -86,20 +82,15 @@ function startServer({ manager, cache, settings, tools, prompts, actions, token,
       return res.end();
     }
     if (path.startsWith("/api/")) {
-      // Only a version number counts, so no request can put its own text in the window.
       const ext = url.searchParams.get("ext");
       const v = ext && /^\d+(\.\d+){0,3}$/.test(ext) ? ext : null;
       if (!hasToken(req)) {
-        // An older version is Chrome still running the copy from before an update, so the
-        // window says to reload it. The current version without the token was loaded from
-        // a zip or from this repo, so the window says to load Downy's folder instead.
         // Any website can send a GET with an <img> tag, but only an extension sends this Origin.
         if (req.headers.origin?.startsWith("chrome-extension://")) {
           actions.extensionSeen(v && v !== extensionVersion ? v : null);
         }
         return send(req, res, 401, { error: "This copy of the Downy extension can't talk to Downy. In chrome://extensions, remove it and load the folder Downy shows in Settings, Chrome extension." });
       }
-      // The extension adds its version to every request.
       actions.extensionSeen(v);
     }
     try {
@@ -143,7 +134,6 @@ function startServer({ manager, cache, settings, tools, prompts, actions, token,
         case "/api/download": {
           const url = String(data.url || "");
           if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");
-          // With "Ask before each download" on, the answer is a request id the extension follows with /api/prompt.
           if (settings.get().confirm) return send(req, res, 200, { prompt: (await prompts.openVideo(url, String(data.option || ""))).id });
           const d = await manager.add(url, String(data.option || ""));
           if (settings.get().showOnStart) actions.show(d.id);

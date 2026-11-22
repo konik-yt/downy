@@ -1,4 +1,3 @@
-// Puts the Downy button over the YouTube player, on watch pages and Shorts.
 (() => {
   const { Overlay } = globalThis.__downy;
 

@@ -1,17 +1,12 @@
-// Puts the Downy button over videos on every other site, the way IDM does. It
-// shows when the pointer is over a video big enough to be the main one, and
-// only after Downy has read the page's formats, so sites yt-dlp doesn't know
-// never get a button. Runs in every frame, so embedded players get one too.
 (() => {
   if (window.__downyVideo || !/^https?:$/.test(location.protocol)) return;
   window.__downyVideo = true;
-  // content.js handles YouTube itself. Embedded YouTube players are left to this script.
   if (/(^|\.)youtube(-nocookie)?\.com$/i.test(location.hostname) && !location.pathname.startsWith("/embed/")) return;
 
   const { Overlay } = globalThis.__downy;
   const MIN_W = 200;
   const MIN_H = 110;
-  const LINGER = 1500; // the button stays this long after the pointer leaves the video
+  const LINGER = 1500;
 
   const overlay = new Overlay();
   overlay.requireFormats = true;
@@ -34,8 +29,6 @@
     return null;
   }
 
-  // Top right corner of the video. The button sits in the fullscreen element when
-  // there is one, since nothing outside it shows in fullscreen.
   function place() {
     const r = target && rectOf(target);
     if (!r) return;
@@ -46,8 +39,9 @@
   function show(v) {
     target = v;
     hoverUntil = Date.now() + LINGER;
+    // Nothing outside the fullscreen element shows in fullscreen.
     overlay.attach({ id: location.href, url: location.href }, document.fullscreenElement || document.documentElement);
-    overlay.prefetch(); // asks Downy once per page whether yt-dlp knows it
+    overlay.prefetch();
     place();
   }
 
@@ -71,7 +65,6 @@
   addEventListener("scroll", place, { passive: true, capture: true });
   addEventListener("resize", place);
 
-  // Fade out after the pointer leaves, and forget the page when the address changes.
   setInterval(() => {
     if (overlay.video && overlay.video.id !== location.href && !overlay.busy) overlay.detach();
     if (target && !target.isConnected) target = null;

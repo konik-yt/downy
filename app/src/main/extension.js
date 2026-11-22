@@ -1,11 +1,3 @@
-// The Chrome extension ships inside Downy. Chrome loads it with "Load unpacked"
-// from a copy in Downy's data folder, which keeps the same path across updates.
-// Each new version of Downy refreshes the copy, and Chrome reads it on its next
-// start.
-//
-// The copy also gets token.json, a secret the local API asks for on every call.
-// Web pages and other extensions can't read an extension's files, so only this
-// copy can use the API.
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -26,7 +18,6 @@ function versionIn(dir) {
   }
 }
 
-// Kept in the data folder, so it stays the same across restarts and updates.
 function loadToken(dataDir) {
   const file = path.join(dataDir, "api-token");
   try {
@@ -48,11 +39,9 @@ class ExtensionCopy {
     this.dir = path.join(dataDir, "Chrome extension");
     this.version = versionIn(bundledDir());
     this.token = loadToken(dataDir);
-    this.seen = null; // { version, at } from the last request the extension made
+    this.seen = null;
   }
 
-  // A dev build copies every time, since the files change without a new version.
-  // The token is written every time, in case someone deleted it.
   sync() {
     if (!this.version) return;
     if (!app.isPackaged || versionIn(this.dir) !== this.version) {
@@ -69,7 +58,6 @@ class ExtensionCopy {
     }
   }
 
-  // Returns true when this changes what the window should show.
   markSeen(version) {
     const v = version || null;
     const changed = !this.seen || this.seen.version !== v;
@@ -89,7 +77,7 @@ class ExtensionCopy {
 }
 
 // Chrome ignores chrome:// addresses passed on its command line, so Downy only
-// opens Chrome and the user pastes the address. Returns false when Chrome is missing.
+// opens Chrome and the user pastes the address.
 function openChrome() {
   const roots = [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA];
   for (const root of roots) {

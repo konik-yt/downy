@@ -1,6 +1,3 @@
-// Checks GitHub releases for a newer Downy. The installed app downloads the new
-// setup exe in the background and runs it when Downy quits, or right away when
-// the user clicks Restart to update.
 const { app } = require("electron");
 const { EventEmitter } = require("events");
 const { testVar } = require("./dev");
@@ -13,14 +10,11 @@ const EVERY = 4 * 60 * 60 * 1000;
 class Updater extends EventEmitter {
   constructor() {
     super();
-    // status: off (dev build), idle, checking, latest, downloading, ready, error
     this.state = { status: app.isPackaged ? "idle" : "off", current: app.getVersion(), version: null, percent: 0, error: null };
     if (!app.isPackaged) return;
 
-    // Loaded here so a dev build never touches it.
     const { autoUpdater } = require("electron-updater");
     this.au = autoUpdater;
-    // For testing: DOWNY_UPDATE_URL points at a folder with latest.yml and the setup exe.
     autoUpdater.setFeedURL(testVar("DOWNY_UPDATE_URL")
       ? { provider: "generic", url: testVar("DOWNY_UPDATE_URL") }
       : { provider: "github", owner: OWNER, repo: REPO });
@@ -34,7 +28,7 @@ class Updater extends EventEmitter {
     autoUpdater.on("download-progress", (p) => this.set({ status: "downloading", percent: Math.round(p.percent || 0) }));
     autoUpdater.on("update-downloaded", (info) => this.set({ status: "ready", version: info.version, percent: 100 }));
     autoUpdater.on("error", (e) => {
-      if (this.state.status === "ready") return; // a later check failing does not undo a finished download
+      if (this.state.status === "ready") return;
       this.set({ status: "error", error: friendly(e) });
     });
   }
@@ -64,7 +58,6 @@ class Updater extends EventEmitter {
     return this.state.status === "ready";
   }
 
-  // Runs the downloaded installer. Call it after the downloads are saved, right before exit.
   install(runAfter) {
     if (!this.ready) return false;
     this.au.quitAndInstall(true, runAfter);

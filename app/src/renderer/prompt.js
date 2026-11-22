@@ -1,18 +1,15 @@
-// The confirm window. With one download it shows the picture, the name, the format and
-// where it goes. With several, or after "Start a batch", it lists them: they can be
-// reordered, left out, and started one at a time or all together.
 const $ = (id) => document.getElementById(id);
 
 let view = null;
-let optionId = null; // the format of a single video
+let optionId = null;
 let dir = "";
-let nameEdited = false; // a typed name or folder stays when the format changes
+let nameEdited = false;
 let dirEdited = false;
-let mode = "one"; // how several downloads run: "one" at a time or "all" together
-let order = []; // request ids, top to bottom
-const formats = {}; // request id -> the format picked on a video's row
-const seen = new Set(); // rows already shown, so only new arrivals light up
-let newest = null; // the request that arrived last while the window was open
+let mode = "one";
+let order = [];
+const formats = {};
+const seen = new Set();
+let newest = null;
 let drag = null;
 
 function size(n) {
@@ -33,13 +30,11 @@ function el(tag, cls, text) {
   return e;
 }
 
-// "Clip (1080p).mp4" -> ["Clip (1080p)", ".mp4"]
 function splitExt(name) {
   const m = /^(.*?)(\.[a-z0-9]{1,8})?$/i.exec(name);
   return [m[1], m[2] || ""];
 }
 
-// 1458 -> "24:18", 3725 -> "1:02:05"
 function clock(s) {
   s = Math.round(s);
   const h = Math.floor(s / 3600);
@@ -48,14 +43,12 @@ function clock(s) {
   return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-// Keeps the start and the end of a long name, where files in a batch differ: "Detroit_Become…part01.rar".
 function middle(text, max = 34) {
   if (text.length <= max) return text;
   const tail = Math.min(14, Math.floor(max / 2.5));
   return text.slice(0, max - tail - 1) + "…" + text.slice(-tail);
 }
 
-// A folder inside the download folder goes by its short name, like YouTube\1080p.
 function shortDir(path) {
   const root = (view.root || "").replace(/[\\/]+$/, "");
   if (root && path.toLowerCase().startsWith(root.toLowerCase() + "\\")) return path.slice(root.length + 1);
@@ -68,17 +61,13 @@ const single = () => view.entries[0];
 const optionOf = (e, id) => e.options?.find((o) => o.id === id) || null;
 const entrySize = (e) => (e.kind === "file" ? e.size || 0 : optionOf(e, formats[e.id] || e.optionId)?.size || 0);
 const sorted = () => order.map((id) => view.entries.find((e) => e.id === id)).filter(Boolean);
-// The short name of a format on its tile: 1080p, 4K, MP3.
 const tileName = (o) => (o.kind !== "video" ? o.folder || o.kind.toUpperCase() : o.folder === "2160p" ? "4K" : o.folder);
-
-// ------------------------------------------------------------ one download
 
 function applySingle() {
   const e = single();
   const t = e.targets[optionId];
   if (!dirEdited) dir = t.dir;
   if (e.kind === "file") {
-    // Files keep their extension in the box, so it can be changed too.
     if (!nameEdited) $("name").value = t.name;
     $("ext").textContent = "";
   } else {
@@ -109,7 +98,6 @@ function renderSingle() {
   const tiles = $("tiles");
   tiles.hidden = e.kind !== "video";
   if (e.kind === "video" && !tiles.children.length) {
-    // Audio first, then the videos from small to big, so the row reads left to right.
     const opts = [...e.options.filter((o) => o.kind !== "video"), ...e.options.filter((o) => o.kind === "video").reverse()];
     tiles.replaceChildren(...opts.map((o) => {
       const b = el("button", "pick");
@@ -129,7 +117,6 @@ function renderSingle() {
   applySingle();
 }
 
-// Left and right arrows move along the format tiles, like a radio group.
 function moveTile(ev, b) {
   if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
   ev.preventDefault();
@@ -153,10 +140,7 @@ function toggleRename() {
   }
 }
 
-// ------------------------------------------------- several downloads, or a batch
-
 function renderGroup() {
-  // Rows keep the order the user made. New arrivals go to the end.
   order = order.filter((id) => view.entries.some((e) => e.id === id));
   for (const e of view.entries) if (!order.includes(e.id)) order.push(e.id);
   const entries = sorted();
@@ -264,7 +248,6 @@ async function leaveOut(id) {
   if (res.ok && res.data) update(res.data);
 }
 
-// Alt with the up or down arrow moves a row one place.
 function moveByKey(ev, id) {
   if (!ev.altKey || (ev.key !== "ArrowUp" && ev.key !== "ArrowDown")) return;
   ev.preventDefault();
@@ -300,8 +283,6 @@ function wireDrag(row) {
   });
 }
 
-// ------------------------------------------------------------------ shared
-
 function showDir() {
   const box = $("dir");
   box.replaceChildren();
@@ -310,7 +291,6 @@ function showDir() {
     box.title = dir;
     return;
   }
-  // Several downloads go where Downy sorts them: files in Downloads, videos by format.
   const videos = view.entries.some((e) => e.kind === "video");
   const filesDir = view.dir || (view.root ? `${view.root.replace(/[\\/]+$/, "")}\\Downloads` : "");
   if (view.entries.every((e) => e.kind === "video")) box.append("Saves to ", el("b", "", "YouTube"), ", in a folder per format");
@@ -334,7 +314,7 @@ function update(next) {
   $("startBatch").hidden = group;
   $("tip").hidden = group;
   if (group) {
-    if (!wasGroup) seen.add(single()?.id); // the first file was already on screen
+    if (!wasGroup) seen.add(single()?.id);
     renderGroup();
   } else {
     $("goText").textContent = "Download";
@@ -402,7 +382,6 @@ function fit() {
   $("gClose").onclick = () => downy.promptCancel();
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") downy.promptCancel();
-    // Enter downloads when nothing else has the focus, as it did when the name box had it.
     if (e.key === "Enter" && (e.target === document.body || e.target === $("card")) && !$("go").disabled) {
       e.preventDefault();
       submit();

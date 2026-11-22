@@ -1,8 +1,5 @@
-# Builds Downy on Windows and publishes a GitHub release with the installer.
-# There is no extension zip: the extension only works from
-# the copy Downy writes its API token into. latest.yml and the blockmap are what
-# the updater inside Downy reads, so every release needs them. Start it from the
-# Actions tab or with `gh workflow run release.yml`.
+# There is no extension zip: the extension only works from the copy Downy writes its API token into.
+# latest.yml and the blockmap are what the updater inside Downy reads, so every release needs them.
 name: Release
 
 on:
@@ -51,7 +48,6 @@ jobs:
           if [ -n "$EXACT" ]; then
             version="${EXACT#v}"
           elif ! git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
-            # The version in package.json was never released, so release it as it is.
             version="$current"
           else
             version=$(node -e "

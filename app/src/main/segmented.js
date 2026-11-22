@@ -1,15 +1,7 @@
-// Multi-connection download of one HTTP stream, like IDM does it.
-//
-// The file is split into segments and each segment is fetched over its own
-// connection with Range requests. When a connection finishes its segment it
-// takes half of the largest segment still running, so every connection stays
-// busy until the end. Segment offsets live on the stream object, which the
-// manager saves to disk, so a paused or interrupted download picks up where it
-// stopped.
 const fs = require("fs");
 
 const CHUNK = 10 * 1024 * 1024; // YouTube slows down single requests bigger than about 10 MB.
-const MIN_SPLIT = 1024 * 1024; // do not split segments that have less than 1 MB left per half.
+const MIN_SPLIT = 1024 * 1024;
 const MAX_RETRIES = 8;
 
 class AbortError extends Error {
@@ -84,10 +76,6 @@ async function probe(st, signal) {
   }
 }
 
-/**
- * Downloads `st` (a stream record) into st.path.
- * opts: connections, signal, onBytes(n), refresh() -> Promise that updates st.url/headers.
- */
 async function downloadStream(st, opts) {
   const { signal } = opts;
   let refreshing = null;
@@ -229,7 +217,6 @@ function runWorkers(st, fh, opts) {
   });
 }
 
-// For servers without Range support: one connection, restarts from zero.
 // st.partial stays set until the body has ended, so a stopped download is
 // never taken for a finished one.
 async function single(st, { signal, onBytes }) {

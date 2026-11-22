@@ -1,16 +1,9 @@
-// Small physical touches for the controls: numbers that roll, labels whose letters blur into
-// the new word, a tab highlight that stretches as it slides, one tooltip that glides between
-// icon buttons, and a dot grid that lights up under a dragged link.
-// With reduced motion turned on in Windows, every helper just sets the new value.
 (() => {
   const calm = matchMedia("(prefers-reduced-motion: reduce)");
   const still = (node) => calm.matches || !node.isConnected || !node.getClientRects().length;
-  // Overshoots a little, then settles.
   const SPRING = "cubic-bezier(.3, 1.45, .5, 1)";
   const SOFT = "cubic-bezier(.2, .7, .2, 1)";
 
-  // A number that rolls. The old value slides up and out while the new one comes in from
-  // below, or the other way round when the number goes down.
   window.roll = (node, value) => {
     const text = String(value);
     const old = node.dataset.v ?? node.textContent;
@@ -41,8 +34,6 @@
     }, () => {});
   };
 
-  // A label whose letters blur into the new word, the way "Pause all" turns into "Resume all".
-  // Letters at the start that stay the same do not move, and the button springs to its new width.
   window.morph = (node, text) => {
     const old = node.dataset.label ?? node.textContent;
     node.dataset.label = text;
@@ -72,7 +63,6 @@
       .finished.then(() => host.style.removeProperty("overflow"), () => {});
   };
 
-  // A new icon pops in with a little turn instead of just appearing.
   window.popIcon = (host) => {
     const svg = host.querySelector(":scope > svg.ic");
     if (!svg || still(host)) return;
@@ -82,8 +72,6 @@
     ], { duration: 380, easing: SPRING });
   };
 
-  // The highlight under the open tab. While it moves, its front edge runs ahead and its back
-  // edge lags, so it stretches between the two tabs and then snaps onto the new one.
   window.placePill = (bar, target) => {
     let pill = bar.querySelector(":scope > .pill");
     if (!pill) {
@@ -113,14 +101,10 @@
     ], { duration: 480 });
   };
 
-  // The switches in Settings and the welcome window: the knob stretches as it slides.
-  // The keyframes in styles.css only run after a click, not when a window opens.
   document.addEventListener("change", (e) => {
     if (e.target.matches?.("input.switch")) e.target.dataset.moved = "";
   });
 
-  // One tooltip for all icon buttons outside dialogs. Going from one button to the next
-  // slides it across and blurs the old words into the new ones.
   const tip = document.createElement("div");
   tip.className = "tip";
   tip.setAttribute("aria-hidden", "true");
@@ -146,8 +130,6 @@
   const place = (b, glide) => {
     const text = b.dataset.tip || b.getAttribute("aria-label");
     const old = tipText.dataset.label || "";
-    // Measure with the final words first, so the tooltip is placed by its new size and not by
-    // the size it has while the old words blur away.
     tipText.textContent = text;
     const w = tip.offsetWidth;
     const h = tip.offsetHeight;
@@ -208,8 +190,6 @@
   });
   document.addEventListener("focusout", (e) => e.target === current && leave());
 
-  // Dragging a link over the window lights up a dot grid around the pointer and says what
-  // letting go will do. A row being dragged to a new place in the queue does not count.
   const glow = document.createElement("div");
   glow.className = "drop-glow";
   glow.setAttribute("aria-hidden", "true");

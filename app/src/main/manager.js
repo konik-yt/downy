@@ -1,6 +1,3 @@
-// Download queue: runs a few downloads at once, saves their state so they can
-// be paused and resumed (also across restarts), and sorts finished files into
-// one folder per format (MP3, M4A, 720p, 1080p and so on).
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -12,9 +9,7 @@ const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("
 
 const ACTIVE = new Set(["downloading", "merging", "converting"]);
 const FINISHED = new Set(["done", "error", "cancelled"]);
-// Files that can join a batch: waiting, paused and failed ones.
 const BATCHABLE = new Set(["queued", "paused", "error"]);
-// The queue runs by order: lowest first. Files from older versions use their created time.
 const byOrder = (a, b) => a.order - b.order || a.created - b.created;
 const PROGRESS_RE = /^DOWNY\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$/;
 
@@ -58,7 +53,6 @@ function safeName(name) {
   return (cleanName(name) || "video").slice(0, 150);
 }
 
-// Like safeName, but a long file name is cut before its extension so the extension stays.
 function safeFileName(name) {
   const clean = cleanName(name) || "download";
   if (clean.length <= 150) return clean;
@@ -66,10 +60,6 @@ function safeFileName(name) {
   return cleanName(clean.slice(0, 150 - ext.length)) + ext;
 }
 
-// Folder layout inside the download folder:
-//   Downloads\          files caught from the browser or pasted links
-//   YouTube\<format>\   YouTube files, one folder per format (MP3, M4A, 720p, 1080p ...)
-//   Videos\<format>\    videos from every other site yt-dlp knows
 const FILES_DIR = "Downloads";
 const LEGACY_PARTS = ".downy-parts";
 const YOUTUBE_DIR = "YouTube";
@@ -103,7 +93,6 @@ function linkExpired(url) {
   }
 }
 
-// Headers as written to downloads.json. Cookies stay in memory only.
 function withoutCookie(headers) {
   if (!headers) return headers;
   return Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== "cookie"));
@@ -129,16 +118,12 @@ class Manager extends EventEmitter {
     this.settings = settings;
     this.file = path.join(dataDir, "downloads.json");
     this.jobs = new Map();
-    this.runtime = new Map(); // id -> { ctrl, proc, bytes, samples }
-    // id -> the browser's Cookie header for a file download. Never saved, so after a
-    // restart the download goes on without it.
+    this.runtime = new Map();
     this.cookies = new Map();
     this.load();
     this.sweepParts();
     this.ticker = setInterval(() => this.tick(), 500);
   }
-
-  // ------------------------------------------------------------ persistence
 
   load() {
     let rows = [];
@@ -150,7 +135,6 @@ class Manager extends EventEmitter {
     for (const j of rows) {
       if (!j || typeof j !== "object" || !j.id) continue;
       if (j.streams && !Array.isArray(j.streams)) j.streams = [];
-      // Older versions saved the browser's cookies here.
       for (const st of j.streams || []) {
         const clean = withoutCookie(st?.headers);
         if (clean && Object.keys(clean).length !== Object.keys(st.headers).length) {
@@ -158,9 +142,7 @@ class Manager extends EventEmitter {
           hadCookies = true;
         }
       }
-      // Anything that was running when Downy closed comes back paused.
       if (ACTIVE.has(j.status) || j.status === "queued") j.status = j.status === "queued" ? "queued" : "paused";
-      // Older versions had no queue order and started files by when they were added.
       if (!Number.isFinite(j.order)) j.order = Number(j.created) || 0;
       j.speed = 0;
       j.eta = null;
@@ -189,8 +171,6 @@ class Manager extends EventEmitter {
   saveSoon() {
     if (!this.saveTimer) this.saveTimer = setTimeout(() => this.save(), 1000);
   }
-
-  // ------------------------------------------------------------------ views
 
   public(j) {
     const expected = j.expected || j.streams?.reduce((n, s) => n + (s.size || 0), 0) || 0;
@@ -237,7 +217,6 @@ class Manager extends EventEmitter {
     }, 150);
   }
 
-  // Info files that yt-dlp may still need to resume a download.
   infoFiles() {
     const keep = new Set();
     for (const j of this.jobs.values()) {
@@ -255,10 +234,6 @@ class Manager extends EventEmitter {
     return counts;
   }
 
-  // ----------------------------------------------------------------- control
-
-  // A download is built as a draft first, so the confirm window can show its
-  // default folder and name, then added with commit() once the user agrees.
   async add(url, optionId, custom) {
     return this.commit(await this.draftVideo(url, optionId), custom);
   }
@@ -267,7 +242,6 @@ class Manager extends EventEmitter {
     return this.commit(await this.draftFile(spec), custom);
   }
 
-  // custom: { dir, name } from the confirm window. dir is an absolute folder; name has no folder in it.
   commit(job, custom = {}) {
     this.prepare(job, custom);
     job.order = this.lastOrder() + 1;
@@ -286,8 +260,6 @@ class Manager extends EventEmitter {
     if (job.customName && job.kind === "file") job.title = job.filename = this.targetName(job);
   }
 
-  // Adds drafts from the confirm window as one batch, in the order given, before any of them starts.
-  // mode "one" runs them one at a time, "all" as many at once as maxActive allows.
   commitBatch(jobs, custom = {}, mode = "one") {
     if (!jobs.length) throw new Error("There is nothing to download");
     const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
@@ -304,7 +276,6 @@ class Manager extends EventEmitter {
     return { batch: id, downloads: jobs.map((j) => this.public(j)) };
   }
 
-  // Where a draft would be saved, without creating anything.
   target(job) {
     return { dir: this.dirFor(job).abs, name: this.targetName(job) };
   }
@@ -328,7 +299,6 @@ class Manager extends EventEmitter {
     return job;
   }
 
-  // A normal file download, from the browser extension or a pasted link.
   async draftFile({ url, filename, referrer, cookies, userAgent, mime }) {
     let parsed;
     try {
@@ -344,8 +314,6 @@ class Manager extends EventEmitter {
     if (referrer) headers.Referer = referrer;
     const st = { role: "file", formatId: "", ext: "", protocol: parsed.protocol.slice(0, -1), url, headers, size: 0, path: "", segments: null, index: 0 };
 
-    // Check the link before taking the download from the browser, so a link that
-    // only works inside the browser can go back to it.
     const info = await probe(cookies ? { ...st, headers: { ...headers, Cookie: cookies } } : st, AbortSignal.timeout(20000));
     const name = safeFileName(filename || info.filename || nameFromUrl(info.finalUrl) || nameFromUrl(url) || "download");
     const wantsPage = /html/.test(mime || "") || /\.html?$/i.test(name);
@@ -360,7 +328,7 @@ class Manager extends EventEmitter {
       kind: "file", ext: st.ext, label: st.ext ? st.ext.toUpperCase() : "File", folder: FILES_DIR,
       mode: "segmented", streams: [st], expected: st.size || 0, downloaded: 0, speed: 0, eta: null,
       status: "queued", error: "", filepath: "", created: Date.now(), finished: null, resumable: info.ranges,
-      cookies: cookies || "", // commit() moves this into this.cookies
+      cookies: cookies || "",
     };
     return job;
   }
@@ -383,7 +351,7 @@ class Manager extends EventEmitter {
     const j = this.jobs.get(id);
     if (!j || !(j.status === "paused" || j.status === "error")) return;
     j.status = "queued";
-    j.order = this.lastOrder() + 1; // a resumed file joins the end of the line
+    j.order = this.lastOrder() + 1;
     j.error = "";
     this.save();
     this.changed();
@@ -394,13 +362,10 @@ class Manager extends EventEmitter {
     for (const j of this.jobs.values()) if (j.status === "queued" || j.status === "downloading") this.pause(j.id);
   }
 
-  // Paused files join the line in the order they had.
   resumeAll() {
     const paused = [...this.jobs.values()].filter((j) => j.status === "paused").sort(byOrder);
     for (const j of paused) this.resume(j.id);
   }
-
-  // --------------------------------------------------------------- queue order
 
   lastOrder() {
     let n = 0;
@@ -412,9 +377,6 @@ class Manager extends EventEmitter {
     return [...this.jobs.values()].filter((j) => j.status === "queued").sort(byOrder);
   }
 
-  // Puts a waiting file in front of beforeId, or at the end of the line when beforeId is empty.
-  // The queued files swap their order values among themselves, so files outside the queue keep theirs.
-  // Files in a batch keep the batch's order and can't be moved.
   move(id, beforeId) {
     const j = this.jobs.get(id);
     if (!j || j.status !== "queued" || j.batch || id === beforeId) return;
@@ -433,17 +395,10 @@ class Manager extends EventEmitter {
     if (first && first.id !== id) this.move(id, first.id);
   }
 
-  // ---------------------------------------------------------------- batches
-
-  // A batch runs its files one at a time in its own order, whatever "Downloads at the
-  // same time" says, and a file that fails is skipped. Each file keeps its batch id, its
-  // place in the batch and when the batch was made, so a batch needs nothing else saved.
   batchJobs(id) {
     return [...this.jobs.values()].filter((j) => j.batch === id).sort((a, b) => a.batchIndex - b.batchIndex);
   }
 
-  // Takes waiting, paused and failed files, in the order they have in the queue.
-  // A file that was in another batch moves to the new one. Returns the batch id.
   startBatch(ids, mode = "one") {
     const picked = [...new Set([].concat(ids))].map((id) => this.jobs.get(id))
       .filter((j) => j && BATCHABLE.has(j.status) && !this.runtime.has(j.id))
@@ -465,7 +420,6 @@ class Manager extends EventEmitter {
     for (const j of this.batchJobs(id)) if (j.status === "queued" || j.status === "downloading") this.pause(j.id);
   }
 
-  // Paused files go back in line in batch order.
   resumeBatch(id) {
     for (const j of this.batchJobs(id)) if (j.status === "paused") this.resume(j.id);
   }
@@ -478,7 +432,6 @@ class Manager extends EventEmitter {
     for (const j of this.batchJobs(id)) this.cancel(j.id);
   }
 
-  // The files stay in the list as ordinary downloads.
   dismissBatch(id) {
     for (const j of this.batchJobs(id)) {
       delete j.batch;
@@ -490,7 +443,6 @@ class Manager extends EventEmitter {
     this.changed();
   }
 
-  // Tells main.js once the last file of a batch has ended, so it can send one notification for all of them.
   batchEnded(id) {
     const jobs = this.batchJobs(id);
     if (jobs.some((j) => j.status === "queued" || j.status === "paused" || ACTIVE.has(j.status))) return;
@@ -516,19 +468,17 @@ class Manager extends EventEmitter {
     this.changed();
   }
 
-  // Takes one id or a list of ids, and saves once.
   remove(ids) {
     for (const id of [].concat(ids)) {
       const j = this.jobs.get(id);
       if (!j || this.runtime.has(id)) continue;
       this.jobs.delete(id);
-      this.cleanup(j); // a failed job still has its part files for a retry
+      this.cleanup(j);
     }
     this.save();
     this.changed();
   }
 
-  // scope "done" clears finished downloads, "failed" clears failed and cancelled ones, anything else clears both.
   clearFinished(scope) {
     const match = scope === "done" ? (s) => s === "done" : scope === "failed" ? (s) => s === "error" || s === "cancelled" : (s) => FINISHED.has(s);
     for (const [id, j] of this.jobs) {
@@ -540,9 +490,8 @@ class Manager extends EventEmitter {
     this.changed();
   }
 
-  // With resume, downloads that were running come back queued instead of paused.
   async shutdown({ resume = false } = {}) {
-    this.stopping = true; // jobs that stop now must not start the next queued one
+    this.stopping = true;
     clearInterval(this.ticker);
     const running = [...this.runtime.keys()];
     for (const [id, rt] of this.runtime) {
@@ -554,7 +503,6 @@ class Manager extends EventEmitter {
     await Promise.allSettled([...this.runtime.values()].map((rt) => rt.done));
     for (const j of this.jobs.values()) if (ACTIVE.has(j.status)) j.status = "paused";
     if (resume) {
-      // Files that were running go back to the front of the line, in the order they had.
       const back = running.map((id) => this.jobs.get(id)).filter((j) => j?.status === "paused").sort(byOrder);
       let first = Math.min(0, ...this.queue().map((j) => j.order));
       for (const j of back.reverse()) {
@@ -565,15 +513,10 @@ class Manager extends EventEmitter {
     this.save();
   }
 
-  // --------------------------------------------------------------- schedule
-
   activeCount() {
     return [...this.jobs.values()].filter((j) => ACTIVE.has(j.status)).length;
   }
 
-  // A one-at-a-time batch takes one slot at most. When the line reaches one of its files,
-  // the batch starts its own next file, the waiting one with the lowest place in the batch.
-  // An all-together batch runs like any other waiting files.
   schedule() {
     if (this.stopping) return;
     const max = Math.max(1, this.settings.get().maxActive);
@@ -632,21 +575,16 @@ class Manager extends EventEmitter {
     });
   }
 
-  // Unfinished files live in Downy's own data folder, so the download folder only holds finished files.
   partsDir() {
     const dir = path.join(this.dataDir, "parts");
     fs.mkdirSync(dir, { recursive: true });
     return dir;
   }
 
-  // Older versions kept unfinished files in a hidden .downy-parts folder inside the download folder.
   isPartsDir(dir) {
     return path.basename(dir) === LEGACY_PARTS || path.resolve(dir) === path.resolve(this.dataDir, "parts");
   }
 
-  // Deletes leftover temporary files that no download uses any more, and the old
-  // .downy-parts folders once they are empty. That includes folders left behind in
-  // download folders the user has since moved away from.
   sweepParts() {
     const dirs = new Set([this.partsDir(), path.join(this.settings.get().downloadDir, LEGACY_PARTS)]);
     const used = new Set();
@@ -659,7 +597,6 @@ class Manager extends EventEmitter {
       }
       if (j.tempDir) dirs.add(j.tempDir);
       if (j.mode === "ytdlp" && j.status !== "done" && j.status !== "cancelled") bases.push(this.ytdlpBase(j) + ".");
-      // A finished file sits one to three folders below the download folder it was saved to.
       let up = j.filepath ? path.dirname(j.filepath) : "";
       for (let i = 0; up && i < 3; i++) {
         dirs.add(path.join(up, LEGACY_PARTS));
@@ -717,7 +654,6 @@ class Manager extends EventEmitter {
     return abs;
   }
 
-  // The extension that goes with a download's format.
   extFor(j) {
     return j.kind === "video" ? "mp4" : j.kind === "mp3" ? "mp3" : j.kind === "file" ? j.ext || "" : "m4a";
   }
@@ -793,12 +729,11 @@ class Manager extends EventEmitter {
     const parts = this.partsDir();
     const cookie = this.cookies.get(j.id);
     if (cookie) for (const st of j.streams) st.headers = { ...st.headers, Cookie: cookie };
-    // Links from YouTube expire after a few hours, so a download resumed later needs fresh ones.
     if (j.kind !== "file" && j.streams.some((st) => !streamDone(st) && linkExpired(st.url))) await this.refreshUrls(j);
     for (const st of j.streams) {
       if (streamDone(st) && st.path && fs.existsSync(st.path)) continue;
       if (!st.path) st.path = path.join(parts, `${j.id}.${st.role}.${st.ext || "bin"}`);
-      if (st.segments && !fs.existsSync(st.path)) st.segments = null; // part file was deleted
+      if (st.segments && !fs.existsSync(st.path)) st.segments = null;
       await downloadStream(st, {
         connections: this.settings.get().connections,
         signal: rt.ctrl.signal,
@@ -818,7 +753,7 @@ class Manager extends EventEmitter {
       try {
         await fs.promises.rename(from, out);
       } catch {
-        // The download folder is on another drive. Copy without blocking the app; cleanup removes the original.
+        // rename fails when the download folder is on another drive.
         try {
           await fs.promises.copyFile(from, out);
         } catch (e) {
@@ -892,16 +827,12 @@ class Manager extends EventEmitter {
     });
   }
 
-  // Formats that are not plain HTTP files (HLS or DASH fragments) go through yt-dlp,
-  // which also downloads fragments over several connections and resumes .part files.
   async runYtdlp(j, rt) {
     const s = this.settings.get();
     const dir = this.targetDir(j);
     // yt-dlp reads % as the start of a template field, so a literal % is written %%.
     const base = this.ytdlpBase(j).replace(/%/g, "%%");
-    // A resumed job keeps the temp folder it started in, where its partial files are.
     if (!j.tempDir || !fs.existsSync(j.tempDir)) j.tempDir = this.partsDir();
-    // The stream links in an old info file have expired; get fresh ones, or let yt-dlp read the page.
     let infoFile = fs.existsSync(j.infoFile || "") ? j.infoFile : "";
     if (infoFile && Date.now() - fs.statSync(infoFile).mtimeMs > INFO_TTL) {
       try {
@@ -966,17 +897,15 @@ class Manager extends EventEmitter {
   }
 
   ytdlpBase(j) {
-    // A name typed with the extension (like "clip.mp4") must not end up as "clip.mp4.mp4".
     if (j.customName) return safeName(j.customName.replace(new RegExp(`\\.${this.extFor(j)}$`, "i"), ""));
     return safeName(j.title) + (j.kind === "video" && j.height ? ` (${j.height}p)` : "");
   }
 
-  // Deletes a job's temporary files. Only ever touches files in a parts folder.
   cleanup(j) {
     this.cookies.delete(j.id);
     for (const st of j.streams || []) {
       if (st.path && this.isPartsDir(path.dirname(st.path))) removeQuietly(st.path);
-      delete st.headers; // they can hold the browser's cookies and are not needed any more
+      delete st.headers;
     }
     if (j.mode !== "ytdlp") return;
     // yt-dlp names its temp files after the output name, so keep those of other unfinished jobs.
@@ -984,7 +913,6 @@ class Manager extends EventEmitter {
       .filter((o) => o !== j && o.mode === "ytdlp" && !FINISHED.has(o.status))
       .map((o) => this.ytdlpBase(o) + ".");
     const base = this.ytdlpBase(j) + ".";
-    // Jobs from older versions did not record their temp folder; it was inside the download folder.
     const dir = j.tempDir || path.join(this.settings.get().downloadDir, LEGACY_PARTS);
     if (!this.isPartsDir(dir)) return;
     let names = [];

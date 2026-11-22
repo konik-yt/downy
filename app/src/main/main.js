@@ -36,12 +36,9 @@ if (!app.requestSingleInstanceLock()) {
 
   const icon = (name) => nativeImage.createFromPath(path.join(ASSETS, name));
 
-  // Covers the main window and every confirm window. The main window then opens
-  // web links in the browser with its own handler.
   app.on("web-contents-created", (_e, contents) => guard.lockDown(contents));
 
   function createWindow() {
-    // For testing: DOWNY_WINDOW_SIZE=960x700 opens the window at another size.
     const [w, h] = (/^\d+x\d+$/.test(testVar("DOWNY_WINDOW_SIZE") || "") ? testVar("DOWNY_WINDOW_SIZE") : "1180x760").split("x").map(Number);
     win = new BrowserWindow({
       width: w,
@@ -63,7 +60,7 @@ if (!app.requestSingleInstanceLock()) {
     win.removeMenu();
     win.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
     win.once("ready-to-show", () => {
-      if (!startHidden || !settings.get().onboarded) win.show(); // the first run always shows the welcome screen
+      if (!startHidden || !settings.get().onboarded) win.show();
     });
     if (testVar("DOWNY_SCREENSHOT")) {
       const shoot = async (n) => {
@@ -109,7 +106,6 @@ if (!app.requestSingleInstanceLock()) {
     else openFolder();
   }
 
-  // `folder` is a path inside the download folder, such as "Downloads" or "YouTube/1080p".
   function openFolder(folder) {
     const root = path.resolve(settings.get().downloadDir);
     let dir = folder ? path.resolve(root, folder) : root;
@@ -152,7 +148,6 @@ if (!app.requestSingleInstanceLock()) {
     app.setLoginItemSettings({ openAtLogin: settings.get().openAtLogin, path: process.execPath, args: ["--hidden"] });
   }
 
-  // downy:// links let the extension start Downy when it is not running.
   if (app.isPackaged) app.setAsDefaultProtocolClient("downy", process.execPath, []);
   app.on("second-instance", () => show());
 
@@ -188,10 +183,8 @@ if (!app.requestSingleInstanceLock()) {
       win?.webContents.send("downloads", list);
       updateTray(list);
     });
-    // Files in a batch get one notification when the batch ends, not one each.
     manager.on("finished", (d) => {
       if (d.batch || !settings.get().notify || !Notification.isSupported()) return;
-      // A folder the user picked outside the download folder ("Other") goes by its own name.
       const where = d.dir === "Other" ? path.basename(path.dirname(d.filepath)) : (d.dir || d.folder).replace(/\//g, " / ");
       const n = new Notification({ title: "Download saved", body: `${d.title}\nSaved to ${where}`, icon: path.join(ASSETS, "icon.png") });
       n.on("click", () => reveal(d.id));
@@ -212,7 +205,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     settings.on("change", () => {
       applyLogin();
-      manager.sweepParts(); // the download folder may have changed
+      manager.sweepParts();
       manager.schedule();
       win?.webContents.send("settings", settings.get());
     });
@@ -234,8 +227,6 @@ if (!app.requestSingleInstanceLock()) {
     app.quit();
   }
 
-  // With "Keep running in the tray" on, closing only hides the window, so this runs
-  // when that setting is off. Quit through before-quit so downloads are saved as paused.
   app.on("window-all-closed", () => {
     if (!settings?.get().closeToTray) app.quit();
   });
@@ -244,14 +235,11 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     quitting = true;
     e.preventDefault();
-    // A restart for an update picks the running downloads up again once the new version starts.
     await manager?.shutdown({ resume: restartForUpdate });
     tray?.destroy();
-    updater?.install(restartForUpdate); // a downloaded update also installs when Downy quits from the tray
+    updater?.install(restartForUpdate);
     app.exit(0);
   });
-
-  // ----------------------------------------------------------------- IPC
 
   const handle = (name, fn) => guard.handle(name, (e, ...args) => fn(...args));
 
@@ -284,7 +272,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   handle("extension:copy-path", () => clipboard.writeText(extension.dir));
   handle("extension:show-folder", () => {
-    extension.sync(); // put the files back if someone deleted them
+    extension.sync();
     shell.openPath(extension.dir);
   });
   handle("tools:install", async () => {
@@ -304,7 +292,7 @@ if (!app.requestSingleInstanceLock()) {
     return manager.add(url, option);
   });
   handle("add-file", (url) => {
-    if (typeof url !== "string") throw new Error("That is not a valid link"); // draftFile checks the rest
+    if (typeof url !== "string") throw new Error("That is not a valid link");
     return manager.addFile({ url });
   });
   handle("pause", (id) => manager.pause(id));
@@ -312,7 +300,6 @@ if (!app.requestSingleInstanceLock()) {
   handle("pause-all", () => manager.pauseAll());
   handle("resume-all", () => manager.resumeAll());
   handle("cancel", (id) => manager.cancel(id));
-  // One id or a list of ids, for clearing a section of the list.
   handle("remove", (ids) => manager.remove(Array.isArray(ids) ? ids.map(String) : String(ids)));
   handle("move", (id, beforeId) => manager.move(String(id), beforeId ? String(beforeId) : null));
   handle("move-to-top", (id) => manager.moveToTop(String(id)));

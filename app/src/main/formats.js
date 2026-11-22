@@ -1,4 +1,3 @@
-// Reads video info with yt-dlp and turns it into the list of formats Downy offers.
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -18,7 +17,6 @@ function isYoutubeUrl(url) {
   }
 }
 
-// Video pages on any site go to yt-dlp, which says whether it knows the site.
 function isHttpUrl(url) {
   if (typeof url !== "string") return false;
   try {
@@ -146,7 +144,6 @@ function publicOptions(options) {
   return options.map(({ id, kind, label, size, sizeText, folder }) => ({ id, kind, label, size, sizeText, folder }));
 }
 
-// Cookies from the extension, as chrome.cookies gives them, in the Netscape file format yt-dlp reads.
 function cookieFile(list) {
   const lines = ["# Netscape HTTP Cookie File"];
   for (const c of list) {
@@ -164,7 +161,6 @@ class InfoCache {
     this.dir = dir;
     this.entries = new Map();
     this.pending = new Map();
-    // Page cookies the extension sent, kept in memory only, for when stream links need refreshing.
     this.cookies = new Map();
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -189,7 +185,6 @@ class InfoCache {
     return job;
   }
 
-  // Deletes info files older than the TTL that no download in `keep` (a Set of paths) still needs.
   prune(keep) {
     let names = [];
     try {
@@ -209,7 +204,6 @@ class InfoCache {
     // Without the generic extractor, a site yt-dlp has no extractor for fails at once
     // with "Unsupported URL" instead of yt-dlp searching the page for any video.
     const args = ["-J", "--no-playlist", "--no-warnings", "--ies", "default,-generic"];
-    // Sites like Reddit and Vimeo only answer signed-in users. The file is deleted once yt-dlp is done.
     let jar = null;
     if (cookies?.length) {
       jar = path.join(this.dir, `cookies-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
