@@ -1,0 +1,2 @@
+# bash rejects a script with CRLF line endings, which Git on Windows would check out.
+check.sh text eol=lf
