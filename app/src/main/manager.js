@@ -895,8 +895,6 @@ class Manager extends EventEmitter {
   // Formats that are not plain HTTP files (HLS or DASH fragments) go through yt-dlp,
   // which also downloads fragments over several connections and resumes .part files.
   async runYtdlp(j, rt) {
-    const bin = tools.find("yt-dlp");
-    if (!bin) throw new Error("yt-dlp was not found");
     const s = this.settings.get();
     const dir = this.targetDir(j);
     // yt-dlp reads % as the start of a template field, so a literal % is written %%.
@@ -913,27 +911,21 @@ class Manager extends EventEmitter {
       }
       if (rt.ctrl.signal.aborted) throw new AbortError();
     }
-    // yt-dlp would otherwise load a yt-dlp.conf from the save folder given to -P,
-    // where anything that downloads into that folder could have put one.
     const args = [
-      "--ignore-config",
       "-f", j.selector, "-P", dir, "-P", `temp:${j.tempDir}`, "-o", `${base}.%(ext)s`,
       "-N", String(s.connections), "--newline", "--progress", "--no-mtime", "--no-warnings",
       "--ffmpeg-location", tools.find("ffmpeg"),
       "--progress-template",
       "download:DOWNY|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s|%(info.format_id)s",
       "--print", "after_move:DOWNY_FILE|%(filepath)s",
-      ...tools.jsRuntimeArgs(),
     ];
     if (j.kind === "video") args.push("--merge-output-format", "mp4");
     if (j.kind === "mp3") args.push("-x", "--audio-format", "mp3", "--audio-quality", "0");
     if (j.kind === "audio" && j.streams?.[0]?.ext !== "m4a") args.push("-x", "--audio-format", "m4a");
-    // The info file is the value of --load-info-json. A page URL goes last, after "--",
-    // so yt-dlp reads it as a URL even if it starts with "-".
-    if (infoFile) args.push("--load-info-json", infoFile);
-    else args.push("--no-playlist", "--", j.url);
+    if (!infoFile) args.push("--no-playlist");
+    const cmd = tools.ytdlpCommand(args, infoFile ? { infoFile } : { url: j.url });
     return new Promise((resolve, reject) => {
-      const proc = spawn(bin, args, { windowsHide: true, env: CHILD_ENV });
+      const proc = spawn(cmd.bin, cmd.args, { windowsHide: true, env: CHILD_ENV });
       rt.proc = proc;
       const tail = [];
       let partDone = 0, partId = null, partBytes = 0, buf = "";

@@ -106,7 +106,7 @@ class Installer extends EventEmitter {
 
   // Once a day, upgrades yt-dlp when it came from winget. A copy from elsewhere is left to its owner.
   async updateYtdlp() {
-    const bin = tools.find("yt-dlp");
+    const bin = tools.status().ytdlp;
     if (!bin || !/[\\/]WinGet[\\/]/i.test(bin) || this.state.running) return;
     try {
       if (Date.now() - fs.statSync(this.stamp).mtimeMs < UPDATE_EVERY) return;

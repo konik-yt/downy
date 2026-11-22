@@ -205,13 +205,10 @@ class InfoCache {
   }
 
   extract(url, cookies) {
-    const bin = tools.find("yt-dlp");
-    if (!bin) return Promise.reject(new Error("yt-dlp was not found. Open Settings in Downy and click Install tools."));
     if (!isHttpUrl(url)) return Promise.reject(new Error("Downy can only read http and https pages"));
     // Without the generic extractor, a site yt-dlp has no extractor for fails at once
     // with "Unsupported URL" instead of yt-dlp searching the page for any video.
-    // yt-dlp would otherwise load a yt-dlp.conf from the current folder or the user's profile.
-    const args = ["--ignore-config", "-J", "--no-playlist", "--no-warnings", "--ies", "default,-generic", ...tools.jsRuntimeArgs()];
+    const args = ["-J", "--no-playlist", "--no-warnings", "--ies", "default,-generic"];
     // Sites like Reddit and Vimeo only answer signed-in users. The file is deleted once yt-dlp is done.
     let jar = null;
     if (cookies?.length) {
@@ -219,11 +216,16 @@ class InfoCache {
       fs.writeFileSync(jar, cookieFile(cookies), { mode: 0o600 });
       args.push("--cookies", jar);
     }
-    // After "--" yt-dlp reads the URL as a URL even if it starts with "-".
-    args.push("--", url);
     const done = () => jar && fs.rm(jar, { force: true }, () => {});
+    let cmd;
+    try {
+      cmd = tools.ytdlpCommand(args, { url });
+    } catch (e) {
+      done();
+      return Promise.reject(e);
+    }
     return new Promise((resolve, reject) => {
-      execFile(bin, args, { windowsHide: true, maxBuffer: 256 * 1024 * 1024, timeout: 120000, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } },
+      execFile(cmd.bin, cmd.args, { windowsHide: true, maxBuffer: 256 * 1024 * 1024, timeout: 120000, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } },
         (err, stdout, stderr) => {
           done();
           if (err) {
