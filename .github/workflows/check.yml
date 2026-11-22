@@ -1,4 +1,4 @@
-# Lints the app and the extension and runs the app's tests on every push and pull request.
+# Lints the app and the extension, runs the app's tests and model-checks the download queue on every push and pull request.
 name: Check
 
 on:
@@ -51,3 +51,22 @@ jobs:
         run: |
           bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
           ./actionlint -color
+
+  model:
+    # TLC checks the TLA+ model of the download queue in formal/ and replays the bugs it guards against.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/downy-tla
+          key: tla2tools-${{ hashFiles('formal/check.sh') }}
+
+      - name: Model-check the download queue
+        run: bash formal/check.sh
