@@ -125,8 +125,67 @@ test("downloadStream stops with AbortError when paused", async (t) => {
   await assert.rejects(downloadStream(st, opts({ signal: ctrl.signal })), AbortError);
 });
 
-test("streamDone is false for an unfinished single-connection download", () => {
-  assert.equal(streamDone({ partial: true, segments: [{ start: 0, end: 9, pos: 10 }] }), false);
+// A server for one file whose answers the test writes itself.
+async function rawServer(t, onRequest) {
+  const http = require("http");
+  const log = [];
+  const server = http.createServer((req, res) => {
+    log.push(req.headers.range || "");
+    onRequest(req, res);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => {
+    server.closeAllConnections();
+    server.close(resolve);
+  }));
+  return { url: `http://127.0.0.1:${server.address().port}/v`, log };
+}
+
+test("a server that answers ranges with no bytes gets waits between tries, not a flood", async (t) => {
+  const size = 4 * MB;
+  const { url, log } = await rawServer(t, (req, res) => {
+    const m = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range || "");
+    if (m && m[1] === "0" && m[2] === "0") {
+      res.writeHead(206, { "Content-Range": `bytes 0-0/${size}`, "Content-Length": 1 });
+      return res.end(Buffer.alloc(1));
+    }
+    res.writeHead(206, { "Content-Range": `bytes ${m[1]}-${m[2]}/${size}`, "Content-Length": 0 });
+    res.end();
+  });
+  const ctrl = new AbortController();
+  const run = downloadStream(stream(tempDir(t), url), opts({ connections: 1, signal: ctrl.signal }));
+  await new Promise((r) => setTimeout(r, 1500));
+  ctrl.abort();
+  await assert.rejects(run, AbortError);
+  const tries = log.length - 1;
+  assert.ok(tries >= 1 && tries <= 3, `asked for the same range ${tries} times in 1.5 s`);
+});
+
+test("a cut off download from a server without Range support or a size is not done, and starts over", async (t) => {
+  const body = randomBytes(256 * 1024);
+  let cut = true;
+  const { url } = await rawServer(t, (req, res) => {
+    res.writeHead(200, { "Content-Type": "application/octet-stream" });
+    if (!cut) return res.end(body);
+    res.write(body.subarray(0, 64 * 1024));
+  });
+  const dir = tempDir(t);
+  const st = stream(dir, url);
+  const ctrl = new AbortController();
+  const run = downloadStream(st, opts({ signal: ctrl.signal }));
+  const wrote = () => fs.existsSync(st.path) && fs.statSync(st.path).size > 0;
+  while (!wrote()) await new Promise((r) => setTimeout(r, 10));
+  ctrl.abort();
+  await assert.rejects(run, AbortError);
+  assert.equal(streamDone(JSON.parse(JSON.stringify(st))), false, "a paused download must not count as finished");
+
+  cut = false;
+  await downloadStream(st, opts());
+  assert.equal(streamDone(st), true);
+  assert.ok(fs.readFileSync(st.path).equals(body));
+});
+
+test("streamDone and streamBytes treat a stream with no segments as not started", () => {
   assert.equal(streamDone({ segments: [] }), false);
   assert.equal(streamDone({}), false);
   assert.equal(streamBytes({}), 0);
