@@ -1,10 +1,9 @@
-// Finds yt-dlp, ffmpeg and a JavaScript runtime on this PC.
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const cache = new Map(); // name -> { path, at }
-const MISS_TTL = 60 * 1000; // a missing tool is looked for again after a minute
+const cache = new Map();
+const MISS_TTL = 60 * 1000;
 
 function onPath(name) {
   // Only .exe on Windows: spawn without a shell cannot run .cmd or .bat files (EINVAL).
@@ -54,7 +53,6 @@ function inWinget(name) {
     }
   }
   if (!hits.length) for (const d of dirs) walk(path.join(pkgs, d), 0);
-  // Prefer a "full_build" ffmpeg, then the shortest path.
   hits.sort((a, b) => (b.includes("full_build") - a.includes("full_build")) || a.length - b.length);
   return hits[0] || null;
 }
@@ -78,9 +76,8 @@ function jsRuntimeArgs() {
   return [];
 }
 
-// The only way to build a yt-dlp command. --ignore-config keeps a yt-dlp.conf in the save
-// folder or the profile from changing what runs. After "--" yt-dlp reads the page as a URL
-// even if it starts with "-". With an info file there is no URL at all.
+// --ignore-config keeps a yt-dlp.conf in the save folder or the profile from changing what
+// runs. After "--" yt-dlp reads the page as a URL even if it starts with "-".
 function ytdlpCommand(options, { url, infoFile }) {
   const bin = find("yt-dlp");
   if (!bin) throw new Error("yt-dlp was not found. Open Settings in Downy and click Install tools.");

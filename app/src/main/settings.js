@@ -5,16 +5,16 @@ const { EventEmitter } = require("events");
 
 const DEFAULTS = {
   downloadDir: path.join(os.homedir(), "Downloads", "Downy"),
-  connections: 8, // connections per file
-  maxActive: 3, // downloads running at the same time
-  organize: true, // put files in MP3, M4A, 720p, 1080p ... folders
-  showOnStart: true, // bring the window up when the extension starts a download
+  connections: 8,
+  maxActive: 3,
+  organize: true,
+  showOnStart: true,
   closeToTray: true,
   openAtLogin: false,
   notify: true,
-  confirm: true, // show the small confirm window before a download from Chrome starts
-  onboarded: false, // the first run asks where to save downloads
-  extensionSetup: false, // the Chrome extension step was shown once (also to people updating from 2.0)
+  confirm: true,
+  onboarded: false,
+  extensionSetup: false,
 };
 
 const LIMITS = { connections: [1, 32], maxActive: [1, 10] };
@@ -28,7 +28,6 @@ class Settings extends EventEmitter {
       saved = JSON.parse(fs.readFileSync(this.file, "utf8"));
       // Settings saved by a version without the welcome screen belong to someone already set up.
       if (saved && typeof saved === "object" && saved.onboarded === undefined) saved.onboarded = true;
-      // A blank folder would make paths relative to wherever Downy runs from.
       for (const k of Object.keys(saved || {})) if (typeof DEFAULTS[k] === "string" && !String(saved[k] ?? "").trim()) delete saved[k];
     } catch {}
     this.values = { ...DEFAULTS, ...saved };

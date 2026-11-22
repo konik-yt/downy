@@ -1,13 +1,7 @@
-// Relays requests from the YouTube page to the Downy desktop app on this PC, and
-// hands normal Chrome downloads to Downy. Requests go from here (not the page)
-// so the app sees the extension origin.
+// Requests go from here, not the page, so the app sees the extension origin.
 const BASE = "http://127.0.0.1:9614";
-// Sent with every request so Downy can tell which version of the extension is connected.
 const VERSION = chrome.runtime.getManifest().version;
 
-// Downy writes token.json into the folder Chrome loads this extension from, and
-// the app answers only requests that carry it. Read again after a 401, in case
-// Downy wrote a new one.
 let token = null;
 async function readToken() {
   try {
@@ -43,14 +37,8 @@ async function call(path, body, retry = true) {
   return data;
 }
 
-// ------------------------------------------------------- Updating itself
-
-// Each Downy update copies the new extension into the folder Chrome loads it from,
-// but Chrome keeps running the old code until the extension reloads. Downy sends the
-// version it bundles with every answer, and when that differs from this one the
-// extension reloads itself once nothing is in flight. Reloading makes Chrome read the
-// folder again. reloadedFor allows one reload per version, so a copy that failed and
-// left the old files in place can't start a reload loop.
+// Chrome keeps running the old code after Downy copies a new version into the folder
+// it loads from, until the extension reloads.
 let bundled = null;
 let busy = 0;
 let reloadTimer = null;
@@ -74,7 +62,6 @@ function maybeReload() {
   }, 1000);
 }
 
-// Counts work in progress, such as a download being handed over, so a reload never cuts one off.
 async function track(promise) {
   busy++;
   try {
@@ -101,9 +88,7 @@ async function handle(msg) {
   throw new Error("Unknown request");
 }
 
-// Sites like Reddit and Vimeo only show videos to signed-in users, so yt-dlp gets
-// the site's cookies. Not for YouTube, where yt-dlp warns that cookies can get an
-// account flagged. A player on a subdomain (player.vimeo.com) gets its parent site's cookies.
+// No cookies for YouTube, where yt-dlp warns that cookies can get an account flagged.
 async function pageCookies(url) {
   let host;
   try {
@@ -144,9 +129,7 @@ const SHARED_HOSTS = [
   "azurewebsites.net", "workers.dev", "glitch.me", "repl.co", "onrender.com", "fly.dev", "appspot.com",
 ];
 
-// ------------------------------------------------------- Chrome downloads
-
-const SMALL = 1024 * 1024; // files under 1 MB stay in Chrome; they finish before Downy could help
+const SMALL = 1024 * 1024;
 
 async function catching() {
   const { catchDownloads = true } = await chrome.storage.local.get("catchDownloads");
@@ -162,11 +145,9 @@ async function cookieHeader(url) {
   }
 }
 
-// Returns true when Downy took the download. Chrome keeps it otherwise, for
-// example when Downy is closed or the link only works inside the browser.
 async function takeOver(item) {
   const url = item.finalUrl || item.url;
-  if (!/^https?:/i.test(url)) return false; // blob:, data: and file: links stay in Chrome
+  if (!/^https?:/i.test(url)) return false;
   if (item.byExtensionId === chrome.runtime.id) return false;
   if (item.totalBytes > 0 && item.totalBytes < SMALL) return false;
   if (!(await catching())) return false;
@@ -216,7 +197,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   return true;
 });
 
-// Say hello as soon as Chrome loads the extension, so Downy's setup screen sees it.
 const hello = () => call("/api/status").catch(() => {});
 chrome.runtime.onInstalled.addListener(hello);
 chrome.runtime.onStartup.addListener(hello);

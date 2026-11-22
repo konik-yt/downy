@@ -42,7 +42,6 @@ contextBridge.exposeInMainWorld("downy", {
   checkUpdate: call("update:check"),
   restartToUpdate: call("update:restart"),
   onUpdate: on("update"),
-  // The confirm window (prompt.html).
   promptGet: call("prompt:get"),
   promptChooseFolder: call("prompt:choose-folder"),
   promptSubmit: call("prompt:submit"),

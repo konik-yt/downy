@@ -1,7 +1,5 @@
-// The "Download this video" button and its quality menu, shared by content.js
-// (the YouTube player) and video.js (videos on every other site yt-dlp knows).
 (() => {
-  if (globalThis.__downy) return; // both scripts load this file on YouTube
+  if (globalThis.__downy) return;
   const send = (msg) => new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage(msg, (res) => {
@@ -116,10 +114,7 @@
 
       this.video = null;
       this.container = null;
-      // Set by the page script: true while the button should fade out, like the player controls.
       this.autoHidden = () => false;
-      // On sites other than YouTube the button waits until Downy has read the page's formats,
-      // so it never shows on a site yt-dlp doesn't know.
       this.requireFormats = false;
       this.failedFor = null;
       this.formats = null;
@@ -148,7 +143,6 @@
       this.updateVisibility();
     }
 
-    // video: { id, url }. The button goes into `container`.
     attach(video, container) {
       if (video.id !== this.video?.id) {
         this.video = video;
@@ -178,8 +172,6 @@
       return !!(this.menu.classList.contains("open") || this.activeId || this.doneId);
     }
 
-    // Hide when the page script says so (the player controls faded out, or the pointer
-    // left the video), unless the menu is open or a download is running.
     updateVisibility() {
       const unknown = this.requireFormats && this.formatsFor !== this.video?.id;
       const hide = !this.video || unknown || this.dismissed === this.video.id || (this.autoHidden() && !this.busy);
@@ -199,7 +191,6 @@
         if (this.video?.id !== vid) return;
         this.loading = null;
         if (res?.ok) { this.formats = res.data; this.formatsFor = vid; }
-        // Asking again would run yt-dlp again for the same answer. A closed Downy is asked again later.
         else if (!res?.offline) this.failedFor = vid;
         this.updateVisibility();
         return res;
@@ -207,8 +198,7 @@
       return this.loading;
     }
 
-    // Downy is not running: open it through its downy:// link (this still counts as
-    // part of the click, so Chrome allows it), then wait for it to answer.
+    // The downy:// link still counts as part of the click, so Chrome allows it.
     async launchApp() {
       this.menu.replaceChildren(el("div", "note", "Starting Downy…"));
       location.href = "downy://show";
@@ -238,7 +228,6 @@
       this.menu.replaceChildren(el("div", "note", "Reading formats…"));
       let res = await this.prefetch();
       if (res && !res.ok && res.offline && this.video?.id === vid) res = await this.launchApp();
-      // The user may have moved to another video while this was loading.
       if (!this.menu.classList.contains("open") || this.video?.id !== vid) return;
       if (res && !res.ok) this.menu.replaceChildren(el("div", "note bad", res.error));
       else if (this.formatsFor === vid && this.formats) this.renderFormats();
@@ -266,7 +255,7 @@
       this.text.textContent = "Starting…";
       const vid = this.video.id;
       const res = await send({ type: "download", url: this.video.url, option: option.id });
-      if (this.video?.id !== vid) return; // the button now belongs to another video
+      if (this.video?.id !== vid) return;
       if (!res?.ok) {
         this.text.textContent = "Download failed";
         this.menu.replaceChildren(el("div", "note bad", res?.error || "Unknown error"));
@@ -275,10 +264,9 @@
         return;
       }
       let id = res.data.id;
-      // Downy asks first in its own small window. Wait until the user answers there.
       if (res.data.prompt) {
         this.text.textContent = "Confirm in Downy…";
-        this.activeId = "prompt"; // keeps the button up while the window is open
+        this.activeId = "prompt";
         this.updateVisibility();
         id = await this.waitForPrompt(res.data.prompt, vid);
         if (this.video?.id !== vid) return;
@@ -294,7 +282,6 @@
       this.poll();
     }
 
-    // Resolves the download id once the user clicks Download, or null when they cancel.
     async waitForPrompt(promptId, vid) {
       for (;;) {
         await new Promise((r) => setTimeout(r, 700));
@@ -314,7 +301,6 @@
       if (id !== this.activeId) return;
       const d = res?.ok && res.data.downloads.find((x) => x.id === id);
       if (!d) {
-        // Removed from the list, or Downy closed: stop following it after a few tries.
         if (++this.missing > 4) {
           this.activeId = null;
           this.setIdle();
