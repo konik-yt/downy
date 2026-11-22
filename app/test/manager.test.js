@@ -398,7 +398,7 @@ test("a batch with a failing file saves the others one by one and retry runs onl
   const files = filesFor(["a", "c"], { hold: true });
   const srv = await fileServer(t, files);
   const { m, values } = manager(t, { saved: rowsFor(srv.base, ["a", "missing", "c"], { status: "paused" }), settings: { maxActive: 3 } });
-  let ended = once(m, "batch-finished");
+  let ended = once(m, "batch-finished", { signal: AbortSignal.timeout(5000) });
   const id = m.startBatch(["a", "missing", "c"]);
   await srv.asked(at("a"));
   await settle();
@@ -418,7 +418,7 @@ test("a batch with a failing file saves the others one by one and retry runs onl
   for (const x of ["a", "c"]) assert.ok(fs.readFileSync(path.join(folder, `${x}.bin`)).equals(files[at(x)].body));
 
   const before = srv.log.length;
-  ended = once(m, "batch-finished");
+  ended = once(m, "batch-finished", { signal: AbortSignal.timeout(5000) });
   m.retryBatch(id);
   assert.deepEqual(await ended, [{ id, count: 3, saved: 2, failed: 1 }]);
   assert.deepEqual(srv.log.slice(before).map((r) => r.path), [at("missing")]);
