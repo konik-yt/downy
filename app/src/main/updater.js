@@ -19,7 +19,7 @@ class Updater extends EventEmitter {
       ? { provider: "generic", url: testVar("DOWNY_UPDATE_URL") }
       : { provider: "github", owner: OWNER, repo: REPO });
     autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.autoInstallOnAppQuit = false; // main.js installs after saving the downloads
     autoUpdater.logger = null;
 
     autoUpdater.on("checking-for-update", () => this.set({ status: this.state.status === "ready" ? "ready" : "checking", error: null }));

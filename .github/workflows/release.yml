@@ -1,3 +1,4 @@
+# There is no extension zip: the extension only works from the copy Downy writes its API token into.
 # latest.yml and the blockmap are what the updater inside Downy reads, so every release needs them.
 name: Release
 
