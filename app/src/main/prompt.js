@@ -5,9 +5,10 @@
 // The extension follows each request by its id until it is started or cancelled.
 const path = require("path");
 const crypto = require("crypto");
-const { app, BrowserWindow, screen, ipcMain, dialog } = require("electron");
+const { BrowserWindow, screen, ipcMain, dialog } = require("electron");
 const { buildOptions, publicOptions } = require("./formats");
 const { fromApp } = require("./guard");
+const { testVar } = require("./dev");
 
 const WIDTH = 540;
 const KEEP = 10 * 60 * 1000; // answered requests are forgotten after this
@@ -138,12 +139,12 @@ class Prompts {
       win.show();
       win.focus();
       // For testing, like the main window: a script to run in the window, then a screenshot.
-      if (!app.isPackaged && process.env.DOWNY_SCREENSHOT) {
+      if (testVar("DOWNY_SCREENSHOT")) {
         setTimeout(async () => {
-          if (process.env.DOWNY_PROMPT_EVAL) await win.webContents.executeJavaScript(process.env.DOWNY_PROMPT_EVAL).catch(() => {});
+          if (testVar("DOWNY_PROMPT_EVAL")) await win.webContents.executeJavaScript(testVar("DOWNY_PROMPT_EVAL")).catch(() => {});
           await new Promise((r) => setTimeout(r, 600));
           const img = await win.webContents.capturePage();
-          require("fs").writeFileSync(`${process.env.DOWNY_SCREENSHOT}-prompt-${box.entries[0]?.id}.png`, img.toPNG());
+          require("fs").writeFileSync(`${testVar("DOWNY_SCREENSHOT")}-prompt-${box.entries[0]?.id}.png`, img.toPNG());
         }, 1200);
       }
     });

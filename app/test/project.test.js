@@ -34,7 +34,7 @@ test("every file the extension manifest names exists", () => {
 });
 
 test("the extension talks to the port the app listens on", () => {
-  const port = Number(/process\.env\.DOWNY_PORT \|\| (\d+)/.exec(read(MAIN, "server.js"))[1]);
+  const port = Number(/testVar\("DOWNY_PORT"\) \|\| (\d+)/.exec(read(MAIN, "server.js"))[1]);
   assert.equal(/const BASE = "http:\/\/127\.0\.0\.1:(\d+)"/.exec(read(EXTENSION, "background.js"))?.[1], String(port));
   assert.ok(manifest.host_permissions.includes(`http://127.0.0.1:${port}/*`));
 });
