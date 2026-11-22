@@ -120,8 +120,8 @@ Schedule(st, rt, pa, ca, bt) ==
               /\ cancelling' = [j \in Jobs |-> IF j \in S THEN FALSE ELSE ca[j]]
 
 -----------------------------------------------------------------------------
-\* cleanup(j) for each job in S. It deletes this.cookies entry and the stream
-\* headers that hold the cookie, and the part files in the parts folder.
+\* cleanup(j) for each job in S. It deletes the job's entry in this.cookies, the
+\* stream headers that hold the cookie, and the part files in the parts folder.
 
 CookiesAfter(S) == [j \in Jobs |-> IF j \in S /\ ~BUG_KEEP_COOKIE THEN FALSE ELSE cookie[j]]
 
