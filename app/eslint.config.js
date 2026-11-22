@@ -30,6 +30,10 @@ const mainRules = {
       selector: "MemberExpression[object.object.name='process'][object.property.name='env'][property.name=/^DOWNY_/], MemberExpression[object.object.name='process'][object.property.name='env'][property.value=/^DOWNY_/]",
       message: "Read DOWNY_* variables with testVar() from src/main/dev.js. It ignores the testing ones in an installed build.",
     },
+    {
+      selector: "MemberExpression[property.name='ipcMain'], MemberExpression[object.name='ipcMain'], Property[key.name='ipcMain']",
+      message: "Register IPC with handle() or listen() from src/main/guard.js. They drop calls that don't come from Downy's own pages.",
+    },
   ],
 };
 
@@ -39,13 +43,13 @@ module.exports = [
   {
     basePath: ROOT,
     files: ["app/src/main/**/*.js"],
-    ignores: ["app/src/main/dev.js"],
+    ignores: ["app/src/main/dev.js", "app/src/main/guard.js"],
     languageOptions: { ecmaVersion: 2024, sourceType: "commonjs", globals: globals.node },
     rules: mainRules,
   },
   {
     basePath: ROOT,
-    files: ["app/src/main/dev.js", "app/test/**/*.js", "app/eslint.config.js"],
+    files: ["app/src/main/dev.js", "app/src/main/guard.js", "app/test/**/*.js", "app/eslint.config.js"],
     languageOptions: { ecmaVersion: 2024, sourceType: "commonjs", globals: globals.node },
     rules,
   },

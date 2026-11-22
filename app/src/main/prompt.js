@@ -5,9 +5,9 @@
 // The extension follows each request by its id until it is started or cancelled.
 const path = require("path");
 const crypto = require("crypto");
-const { BrowserWindow, screen, ipcMain, dialog } = require("electron");
+const { BrowserWindow, screen, dialog } = require("electron");
 const { buildOptions, publicOptions } = require("./formats");
-const { fromApp } = require("./guard");
+const guard = require("./guard");
 const { testVar } = require("./dev");
 
 const WIDTH = 540;
@@ -34,15 +34,10 @@ class Prompts {
     this.items = new Map(); // request id -> { id, state, downloadId, kind, url, site, draft, view }
     this.boxes = new Set(); // open windows: { win, entries, collecting, site, busy }
 
-    const handle = (name, fn) => ipcMain.handle(name, async (e, ...args) => {
-      try {
-        if (!fromApp(e)) throw new Error("This request did not come from Downy.");
-        const box = this.boxOf(e.sender);
-        if (!box) throw new Error("This download was already answered.");
-        return { ok: true, data: await fn(box, ...args) };
-      } catch (err) {
-        return { ok: false, error: err.message || String(err) };
-      }
+    const handle = (name, fn) => guard.handle(name, (e, ...args) => {
+      const box = this.boxOf(e.sender);
+      if (!box) throw new Error("This download was already answered.");
+      return fn(box, ...args);
     });
     handle("prompt:get", (box) => this.view(box));
     handle("prompt:choose-folder", async (box, current) => {
@@ -61,8 +56,7 @@ class Prompts {
     handle("prompt:remove", (box, id) => this.leaveOut(box, String(id)));
     handle("prompt:submit", (box, choice) => this.submit(box, choice && typeof choice === "object" ? choice : {}));
     handle("prompt:cancel", (box) => box.win.close());
-    ipcMain.on("prompt:size", (e, height) => {
-      if (!fromApp(e)) return;
+    guard.listen("prompt:size", (e, height) => {
       const box = this.boxOf(e.sender);
       const h = Math.round(Number(height));
       if (box && h > 0) box.win.setContentSize(WIDTH, Math.min(h, 720));

@@ -1,6 +1,6 @@
 const path = require("path");
 const fs = require("fs");
-const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, Notification, nativeImage, clipboard } = require("electron");
+const { app, BrowserWindow, Tray, Menu, dialog, shell, Notification, nativeImage, clipboard } = require("electron");
 const tools = require("./tools");
 const { InfoCache, isYoutubeUrl, isHttpUrl, buildOptions, publicOptions } = require("./formats");
 const { Settings } = require("./settings");
@@ -10,7 +10,7 @@ const { ExtensionCopy, openChrome } = require("./extension");
 const { Updater } = require("./updater");
 const { Installer } = require("./installer");
 const { Prompts } = require("./prompt");
-const { fromApp, lockDown } = require("./guard");
+const guard = require("./guard");
 const { testVar } = require("./dev");
 
 const ASSETS = path.join(__dirname, "..", "renderer", "assets");
@@ -38,7 +38,7 @@ if (!app.requestSingleInstanceLock()) {
 
   // Covers the main window and every confirm window. The main window then opens
   // web links in the browser with its own handler.
-  app.on("web-contents-created", (_e, contents) => lockDown(contents));
+  app.on("web-contents-created", (_e, contents) => guard.lockDown(contents));
 
   function createWindow() {
     // For testing: DOWNY_WINDOW_SIZE=960x700 opens the window at another size.
@@ -253,14 +253,7 @@ if (!app.requestSingleInstanceLock()) {
 
   // ----------------------------------------------------------------- IPC
 
-  const handle = (name, fn) => ipcMain.handle(name, async (e, ...args) => {
-    try {
-      if (!fromApp(e)) throw new Error("This request did not come from Downy.");
-      return { ok: true, data: await fn(...args) };
-    } catch (err) {
-      return { ok: false, error: err.message || String(err) };
-    }
-  });
+  const handle = (name, fn) => guard.handle(name, (e, ...args) => fn(...args));
 
   handle("state", () => ({
     downloads: manager.list(),

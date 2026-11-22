@@ -56,7 +56,7 @@ test("every call in preload.js has a handler in the main process", () => {
   const preload = read(MAIN, "preload.js");
   const main = read(MAIN, "main.js") + read(MAIN, "prompt.js");
   const handled = new Set(all(/\bhandle\("([^"]+)"/g, main));
-  const listened = new Set(all(/ipcMain\.on\("([^"]+)"/g, main));
+  const listened = new Set(all(/\blisten\("([^"]+)"/g, main));
   const sent = new Set(all(/webContents\.send\("([^"]+)"/g, main));
 
   const invoked = all(/\bcall\("([^"]+)"\)/g, preload);

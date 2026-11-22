@@ -23,6 +23,26 @@ function fromApp(e) {
   return !!frame && frame === e.sender.mainFrame && isAppPage(frame.url);
 }
 
+// The only way to answer a page's IPC call, so no handler can skip the sender check.
+// fn gets the event and the call's arguments. What it returns or throws goes back as { ok, data } or { ok, error }.
+function handle(name, fn) {
+  require("electron").ipcMain.handle(name, async (e, ...args) => {
+    try {
+      if (!fromApp(e)) throw new Error("This request did not come from Downy.");
+      return { ok: true, data: await fn(e, ...args) };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
+  });
+}
+
+// Like handle(), for messages that get no answer.
+function listen(name, fn) {
+  require("electron").ipcMain.on(name, (e, ...args) => {
+    if (fromApp(e)) fn(e, ...args);
+  });
+}
+
 // A dropped link or HTML file would otherwise load in the window and get the API.
 function lockDown(contents) {
   contents.on("will-navigate", (e) => e.preventDefault());
@@ -30,4 +50,4 @@ function lockDown(contents) {
   contents.setWindowOpenHandler(() => ({ action: "deny" }));
 }
 
-module.exports = { fromApp, lockDown };
+module.exports = { fromApp, lockDown, handle, listen };
