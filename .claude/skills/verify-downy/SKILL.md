@@ -7,7 +7,7 @@ description: Launch and drive the real Downy desktop app (Electron, run from sou
 
 Downy is a Windows download manager. The surface a user touches is the Electron window (`app/src/renderer/index.html`), plus the small confirm window (`prompt.html`) that opens when the Chrome extension hands over a download through the local API. This skill runs Downy from source with its own data folder, API port and download folder, so it never touches the user's installed Downy, which normally runs at the same time on port 9614 with data in `%APPDATA%\Downy`.
 
-Everything goes through one helper, `scripts/downy-verify.mjs`. It needs Node 22 or later (for the built-in WebSocket) and `npm install` done in `app/`. Run it from the repo root. In Git Bash:
+Everything goes through one helper, `scripts/downy-verify.mjs`. It needs Node 22.2 or later (for the built-in WebSocket, and `zlib.crc32` to build the ZIP fixture) and `npm install` done in `app/`. Run it from the repo root. In Git Bash:
 
 ```bash
 V="node .claude/skills/verify-downy/scripts/downy-verify.mjs"
@@ -33,6 +33,7 @@ It does this:
    - `file/norange.bin`: 2 MB, ignores Range, like a simple server.
    - `login`: answers with HTML and has no `.html` name, like a sign-in page. Downy must refuse it.
    - `page.html`: answers with HTML under an `.html` name. Downy downloads it, since the user linked to a page file.
+   - `file/Sample.zip`: a ZIP with Range support, for Choose files. It holds `Sample/readme.txt`, `Sample/data.json`, `Sample/docs/guide.md`, `Sample/docs/notes.txt` and `Sample/big.bin` (4 MB, stored). `served.json` lists each entry as `/file/Sample.zip!/Sample/<path>` with its sha256, so `files` names the entry an extracted file matches.
 4. Starts `app/node_modules/electron/dist/electron.exe .` in `app/` with `DOWNY_USER_DATA=<run>/data`, `DOWNY_PORT=<free port>` and `--remote-debugging-port=<free port>`. Output goes to `evidence/app.log`.
 5. Waits up to 60 s for ready, and prints `READY run=<dir>`. Ready means usable: the main window ran `init()` (the three tabs exist and `downy.state()` answers ok) and the local API answers `GET /` with "Downy is running". A DevTools port that answers is not enough.
 
@@ -63,7 +64,10 @@ All page commands talk to the main window over DevTools. Add `--target prompt` t
 ```bash
 $V type '#url' "$B/file/small.bin"     # clicks the field, then inserts the text at the cursor
 $V type '#url' "$B/login" --replace    # clicks, presses Ctrl+A, then types over the old text
-$V key Enter                           # Enter, Escape or Tab
+$V key Enter                           # Enter, Escape, Tab, the arrows, Home, End, PageUp, PageDown
+$V key Shift+ArrowRight --target prompt  # modifiers go in front, joined with +
+$V drag '.trim-handle.start' 44 --target prompt   # presses at the centre, moves 44 px right in steps, lets go
+$V drag '.trim-handle.end' -404 --shot mid-drag --target prompt   # --shot captures while the button is down
 $V click '[data-id="<id>"] button[aria-label="Pause"]'
 $V click '#viewActs button' --text 'Clear from list'   # buttons with no id or label
 $V wait 'downy.state().then(r => r.data.downloads.some(d => d.status === "done"))' --timeout 30000
@@ -80,16 +84,19 @@ Stable handles in the main window (`app/src/renderer/index.html` and `app.js`):
 | What | Selector |
 | --- | --- |
 | Link field, send button | `#url`, `#sendBtn` (`aria-label="Download"`), the hint under it is `#composerHint` |
-| Tabs | `#tabs .tab[data-tab=downloads]`, `[data-tab=done]`, `[data-tab=failed]`; the count is `.n` inside; the open tab has `aria-current="page"` |
+| Tabs | `#tabs .tab[data-tab=downloads]`, `[data-tab=done]`, `[data-tab=failed]`; the count is `.n` inside, and its `data-v` holds the settled number (the text holds two digits while the count rolls); the open tab has `aria-current="page"` |
 | Current view | `#main[data-view]`: `idle`, `busy`, `done` or `failed` |
-| A download row | `[data-id="<download id>"]`, with `data-status` set to queued, downloading, paused, done, error or cancelled |
+| A download row | `[data-id="<download id>"]`, with `data-status` set to queued, downloading, merging, converting, paused, done, error or cancelled |
 | Row buttons | `button[aria-label=...]` inside the row: `Pause`, `Resume`, `Cancel download`, `Move to top`, `Open file`, `Show in folder`, `Remove from list`. Retry on a failed row is a text button: `click '[data-id="<id>"] button' --text Retry` |
-| Finished and Failed header | `#viewTitle`, `#viewMeta`, buttons in `#viewActs` by text (`Open folder`, `Clear from list`, `Retry all`), folder chips in `#folderChips` |
+| Finished and Failed header | `#viewTitle`, `#viewMeta`, buttons in `#viewActs` by text (`Open folder`, `Clear from list`, and `Retry` with one failed file or `Retry all` with more), folder chips in `#folderChips` |
 | Totals while running | `#status` with `#statusBig`, `#statusSub`, button `#statusAct` |
 | Title bar | `#openSettings` (`aria-label="Settings"`), `#openFolder`, `[data-win=minimize]`, `[data-win=maximize]`, `[data-win=close]` |
 | Settings dialog | `#settings` (open when `#settings.open`), pages `#setNav [data-page=saving|speed|chrome|app|about]`, steppers `[data-step=connections|maxActive][data-delta="1"|"-1"]` with the value in `output[name=connections]` and `output[name=maxActive]`, switches `input[name=organize]` and the other `input.switch[name=...]`, close `button[aria-label="Close settings"]` |
 | Welcome dialog (`--fresh`) | `#welcome`, `#welcomeNext`, `#toolsSkip`, `#toolsInstall`, `#extSkip`, `#extDone` |
-| Confirm window (`--target prompt`) | `#title` (file name), `#rename` then `#name` (hidden until Rename), `#dir`, `#change`, `#go` (Download), `#startBatch`, `#close` (the x, cancels one file), `#error`. `#cancel` and `#gClose` belong to the group of several files |
+| Video picker in the main window | `#picker`, opened by Enter on a YouTube link. `.pick-trim` (Trim, then Cancel trim), tiles `.pick[data-id=v720]`, `[data-id=m4a]`, `[data-id=mp3]`, the trimmer below. The same `#picker` shows the ZIP list for a `.zip` link |
+| Trimmer (both windows) | `.trim-handle.start`, `.trim-handle.end` (`role=slider`, keys move them), `.trim-sel` (drag to move the whole part), `.trim-times b` ("Drag an end to trim", then "1:00 to 1:20, 20 seconds"), `.trim-bubble` (frame and time while dragging) |
+| ZIP file list (both windows) | rows `.ft-row` with check box `.ft-box` (`aria-checked`), folders `.ft-row.dir` with `--depth: 0` for the top one, a file's `.ft-name[title]` holds its path in the archive, the summary `.ft-sum` with Pick none or Pick all |
+| Confirm window (`--target prompt`) | `#title` (file name), `#rename` (then reads Keep the name) and `#name`, `#dir`, `#change`, `#go` (Download, with the label in `#goText`), `#startBatch`, `#close` (the x, cancels one file), `#error`, `#trim` (videos) with the format tiles in `#tiles .pick[data-id=...]`, `#choose` (Choose files, then Keep all files, for ZIPs) with the list in `#zipBox`, `#screen` (the big frame while a trim handle moves). `#cancel` and the x `#gClose` belong to the group of several files and read Cancel all, or Cancel batch while a batch collects |
 
 Get a download's id from the window, not from the API:
 

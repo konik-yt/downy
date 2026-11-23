@@ -41,17 +41,22 @@ Each feature file has an H1 title and one paragraph on what the user sees, then 
 - [Chrome handover and the confirm window](./chrome-handover.md): what the extension sends to the local API, and the window that asks before the download starts.
 - [Finished and Failed lists](./finished-and-failed.md): the tabs, removing rows, Clear from list, Retry.
 - [Speed settings](./speed-settings.md): connections per file and downloads at the same time, and the queue they cause.
+- [Trim a video](./trim-video.md): the filmstrip with drag handles in the confirm window and the main window picker, and the clip it saves. Needs the real network.
+- [Pick files from a ZIP](./zip-pick.md): the file list for a `.zip` link in the main window and behind Choose files in the confirm window, and the files it extracts.
 
-Last driven against the real app (2026-11-24, Downy 3.1.0, commit 85ecd32):
+Last driven against the real app (2026-11-24, Downy 3.1.0, commit 686f88b):
 
-- `paste-*`: every step, end to end.
-- `pause-row`, `resume-row`, `pause-quit`: driven while the helper was being built. `cancel-row` and `pause-all` not yet.
+- `paste-file`, `paste-norange`, `paste-refuse-page`, `paste-refuse-bad`: driven. `paste-html-file` and `paste-empty` were driven on 2026-11-24 at commit 85ecd32. The Ctrl+V and drop entries read the user's clipboard or need another app, so they are not driven.
+- `pause-row`, `resume-row`, `cancel-row`, `pause-quit`: driven. `pause-all` and `pause-queued` not yet.
 - `handover-confirm`, `handover-rename`, `handover-cancel`, `handover-token`: driven. `handover-direct` not yet.
-- Finished and Failed lists, Speed settings: written from the code, not driven yet. Treat their first run as a check of the recipe too.
+- `list-tabs`, `list-remove`, `list-clear`, `list-failed`, `list-retry`: driven.
+- `speed-active`, `speed-limits`, `speed-connections`: driven.
+- `trim-confirm`, `trim-picker`, `trim-drag`, `trim-keys`, `trim-size`, `trim-cancel`: driven against YouTube.
+- `zip-composer`, `zip-confirm`, `zip-tree`, `zip-extract`, `zip-whole`: driven. `zip-plain` is covered by unit tests only.
 
 ## Not mapped yet
 
 - Welcome screen (`$V launch --fresh`): folder step, tools step, Chrome extension step.
-- YouTube and other video sites: the format picker, yt-dlp, ffmpeg merge and MP3, sorting into `YouTube\1080p` and so on. Needs the real network and yt-dlp, so the local file server can't stand in.
+- YouTube and other video sites beyond a trimmed clip: a whole video, MP3, and sites other than YouTube. `trim-video.md` covers the format picker and the confirm window for one video. Needs the real network and yt-dlp, so the local file server can't stand in.
 - Picking files and batches (`#selbar`, Download one by one, Download all together), and reordering the queue by drag or Alt with an arrow key.
 - Tray menu, Start with Windows, and the updater. The tray and login items are native, and the updater only runs in an installed build.

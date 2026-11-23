@@ -1,6 +1,6 @@
 # Paste a file link
 
-A user pastes a link to a file into the box at the bottom of the window and presses Enter. Downy checks the link, adds a row, downloads the file over several connections and moves it to the Finished tab, saved under `Downloads\` in the download folder. A link that opens a web page or isn't http or https is refused with a message under the box.
+A user pastes a link to a file into the box at the bottom of the window and presses Enter. Downy checks the link, adds a row, downloads the file over several connections and saves it under `Downloads\` in the download folder. The window stays on the Downloads tab, and the Finished tab's count goes up. A link to a `.zip` opens the list of files in it instead (see `zip-pick.md`). A link that opens a web page or isn't http or https is refused with a message under the box.
 
 ## Sub-features
 
@@ -15,7 +15,8 @@ A user pastes a link to a file into the box at the bottom of the window and pres
 
 - Click the box ("Paste a YouTube link or a file link"), type or paste the link, press Enter.
 - Same, then click the round send button on the right of the box.
-- Press Ctrl+V anywhere in the window: the link fills the box and the hint says "Press Enter to download this file into Downloads".
+- Press Ctrl+V anywhere in the window except another text field: an http or https link fills the box and the hint says "Press Enter to download this file into Downloads".
+- Drop a link from a browser onto the window. It works like a paste.
 
 ## Driving it with downy-verify
 
@@ -25,7 +26,7 @@ Preconditions:
 
 - **Before.** Run `$V shot before-paste`. The window shows "What should we download?" and `#main` has `data-view="idle"`.
 - **Paste and Enter (`paste-file`).** Run `$V type '#url' "$B/file/small.bin"` then `$V key Enter`. Then `$V wait 'downy.state().then(r => r.data.downloads.find(d => d.title === "small.bin" && d.status === "done"))' --timeout 30000`. It prints the row with `status: "done"`, `folder: "Downloads"` and `downloaded` equal to `expected` (3145728).
-- **The window shows it.** Run `$V wait 'document.querySelector("#tabs .tab[data-tab=done] .n")?.textContent === "1"'` and `$V shot after-download`. The Finished tab is open with one row, small.bin, "Saved to Downloads", 3.0 MB.
+- **The window shows it.** Run `$V wait 'document.querySelector("#tabs .tab[data-tab=done] .n")?.dataset.v === "1"'` and `$V shot after-download`. The Downloads tab stays open with `#main[data-view=idle]`, and the Finished tab's count reads 1. Click `#tabs .tab[data-tab=done]` to see the row: small.bin, "Saved to Downloads", 3.0 MB.
 - **The file is right.** Run `$V files --save paste`. It lists `Downloads\small.bin`, size 3145728, with `matches: "/file/small.bin"`.
 - **It used several connections.** Run `$V serverlog small.bin`. After a `bytes=0-0` probe there are 206 answers for 3 separate ranges (`0-1048575`, `1048576-2097151`, `2097152-3145727`), at about the same time.
 - **Send button entry.** Run `$V type '#url' "$B/file/norange.bin"` then `$V click '#sendBtn'`, then wait as above for `norange.bin` to be done. `$V files` shows `Downloads\norange.bin` matching `/file/norange.bin`, and `$V serverlog norange.bin` shows GET requests answered 200 with the full 2097152 bytes, not 206 (`paste-norange`).
@@ -37,7 +38,8 @@ Preconditions:
 ## Gotchas
 
 - `type` clicks the field, which drops any selection, then inserts at the cursor. Without `--replace` a second link is appended to a refused one still in the box, and the server answers 404 for the joined URL.
-- An error hint stays until the next check. Wait for the exact message, not just for `#composerHint.bad`, or you read the previous step's error.
+- An error hint stays until you type in the box or the next check runs. Wait for the exact message, not just for `#composerHint.bad`, or you read the previous step's error.
+- Read a tab count from `.n`'s `data-v`. Its text holds the old and new digits for a moment while the number rolls.
 - A YouTube link takes the other path (format picker, yt-dlp, network). Only use links on `$B` here.
-- The Ctrl+V entry reads the system clipboard, which belongs to the user's desktop. Don't write to it; report that entry as not driven.
+- The Ctrl+V entry reads the system clipboard, which belongs to the user's desktop. Don't write to it; report that entry as not driven. The drop entry needs a drag from another app, which the helper can't make, so report it as not driven too.
 - File downloads always land in `Downloads\`, even with "Sort YouTube files by format" on. A second download with the same name gets a new name rather than overwriting, so check `files` for the exact path.

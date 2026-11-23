@@ -25,6 +25,7 @@ import path from "node:path";
 import http from "node:http";
 import net from "node:net";
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -270,6 +271,59 @@ function bytesFor(name, size) {
   return out;
 }
 
+// A small ZIP archive for picking files out of it: deflated and stored entries in nested folders,
+// all under one folder named like the archive, and a 4 MB entry that a pick of the others must
+// never fetch. Built the same way every run, so served.json can name each entry's sha256.
+const ZIP_ENTRIES = [
+  ["Sample/readme.txt", Buffer.from("Hello from the sample archive.\n".repeat(60)), 8],
+  ["Sample/docs/guide.md", Buffer.from("# Guide\n" + "A line of the guide.\n".repeat(300)), 8],
+  ["Sample/docs/notes.txt", Buffer.from("notes\n".repeat(500)), 0],
+  ["Sample/big.bin", null, 0],
+  ["Sample/data.json", Buffer.from(JSON.stringify({ n: [...Array(1500).keys()] })), 8],
+];
+
+function zipOf(entries) {
+  const locals = [];
+  const central = [];
+  let off = 0;
+  for (const [name, data, method] of entries) {
+    const n = Buffer.from(name);
+    const packed = method === 8 ? zlib.deflateRawSync(data, { level: 9 }) : data;
+    const crc = zlib.crc32(data);
+    const head = Buffer.alloc(30);
+    head.writeUInt32LE(0x04034b50, 0);
+    head.writeUInt16LE(20, 4);
+    head.writeUInt16LE(0x0800, 6);
+    head.writeUInt16LE(method, 8);
+    head.writeUInt32LE(crc, 14);
+    head.writeUInt32LE(packed.length, 18);
+    head.writeUInt32LE(data.length, 22);
+    head.writeUInt16LE(n.length, 26);
+    locals.push(head, n, packed);
+    const c = Buffer.alloc(46);
+    c.writeUInt32LE(0x02014b50, 0);
+    c.writeUInt16LE(20, 4);
+    c.writeUInt16LE(20, 6);
+    c.writeUInt16LE(0x0800, 8);
+    c.writeUInt16LE(method, 10);
+    c.writeUInt32LE(crc, 16);
+    c.writeUInt32LE(packed.length, 20);
+    c.writeUInt32LE(data.length, 24);
+    c.writeUInt16LE(n.length, 28);
+    c.writeUInt32LE(off, 42);
+    central.push(c, n);
+    off += 30 + n.length + packed.length;
+  }
+  const cd = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(cd.length, 12);
+  end.writeUInt32LE(off, 16);
+  return Buffer.concat([...locals, cd, end]);
+}
+
 const SERVED = {
   "/file/small.bin": { size: 3 * 1024 * 1024, ranges: true, note: "3 MB, Range support, full speed" },
   "/file/slow.bin": { size: 48 * 1024 * 1024, ranges: true, rate: 128 * 1024, note: "48 MB, Range support, 128 KB/s per connection (about 1 MB/s with 8 connections)" },
@@ -277,6 +331,7 @@ const SERVED = {
   // A link that answers with HTML, like a sign-in page. The name must not end in .html:
   // Downy downloads an .html link on purpose, since the user asked for that page.
   "/login": { body: "<!doctype html><title>Sign in</title><p>A web page, not a file.", type: "text/html", note: "a web page with no .html name, which Downy must refuse" },
+  "/file/Sample.zip": { zip: true, ranges: true, type: "application/zip", note: "a ZIP of 5 files in Sample/ (one is 4 MB), Range support, for Choose files" },
   "/page.html": { body: "<!doctype html><title>Saved page</title><p>An .html file.", type: "text/html", note: "an .html link, which Downy downloads as a file" },
 };
 
@@ -284,9 +339,15 @@ async function serve(dir) {
   const files = {};
   const manifest = [];
   for (const [p, f] of Object.entries(SERVED)) {
-    const body = f.body ? Buffer.from(f.body) : bytesFor(p, f.size);
+    const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
+    let body;
+    if (f.zip) {
+      const entries = ZIP_ENTRIES.map(([name, data, method]) => [name, data || bytesFor(name, 4 * 1024 * 1024), method]);
+      body = zipOf(entries);
+      for (const [name, data] of entries) manifest.push({ path: `${p}!/${name}`, name: path.basename(name), size: data.length, sha256: sha(data), note: `entry of ${path.basename(p)}` });
+    } else body = f.body ? Buffer.from(f.body) : bytesFor(p, f.size);
     files[p] = { ...f, body };
-    manifest.push({ path: p, name: path.basename(p), size: body.length, sha256: crypto.createHash("sha256").update(body).digest("hex"), note: f.note });
+    manifest.push({ path: p, name: path.basename(p), size: body.length, sha256: sha(body), note: f.note });
   }
   const logFile = path.join(dir, "evidence", "server-log.jsonl");
   const server = http.createServer((req, res) => {
