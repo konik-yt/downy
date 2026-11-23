@@ -113,3 +113,18 @@ test("a ZIP job pauses, comes back after a restart and finishes", async (t) => {
   assert.equal(done.filepath, path.join(again.downloads, "data.bin"), "one file goes straight into Downloads");
   assert.ok(fs.readFileSync(done.filepath).equals(entries[3].data));
 });
+
+test("readZip leaves a link as a plain download when it can't list the files", async (t) => {
+  const { body } = makeZip(ENTRIES);
+  const one = makeZip([{ name: "only.txt", data: "one file" }]).body;
+  const ranged = await fileServer(t, { "/Pack.zip": { body }, "/fake.zip": { body: randomBytes(4000) }, "/One.zip": { body: one } });
+  const plain = await fileServer(t, { "/Pack.zip": { body } }, { ranges: false });
+  const { m } = manager(t, tempDir(t));
+
+  assert.equal(await readZip(await m.draftFile({ url: `${plain.base}/Pack.zip` })), null, "no Range support");
+  assert.equal(await readZip(await m.draftFile({ url: `${ranged.base}/fake.zip` })), null, "not a ZIP inside");
+  assert.equal(await readZip(await m.draftFile({ url: `${ranged.base}/One.zip` })), null, "nothing to pick from");
+  const named = await m.draftFile({ url: `${ranged.base}/Pack.zip?dl=1`, filename: "download" });
+  assert.equal(await readZip(named), null, "no .zip name and no ZIP type");
+  assert.ok(await readZip(named, "application/zip"), "the type Chrome reports is enough");
+});
