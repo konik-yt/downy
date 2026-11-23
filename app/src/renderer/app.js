@@ -1424,6 +1424,7 @@ async function addFile(url) {
   try {
     const res = await downy.addFile(url);
     if (!res.ok) return setHint(res.error, true, "alert");
+    if (res.data.zip) return openZip(url, res.data.zip);
     $("url").value = "";
     defaultHint();
     state.tab = "downloads";
@@ -1468,6 +1469,72 @@ async function getFormats(url) {
   }
 }
 
+// A ZIP on a server that sends parts of files: the picker lists its files, so only the
+// ones picked are downloaded. Reading the list needs the main process to probe the link.
+const isZipLink = (url) => {
+  try {
+    return /\.zip$/i.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+};
+
+let zipRequest = 0;
+
+async function checkZip(url) {
+  const req = ++zipRequest;
+  setHint("Reading the files in this ZIP", false, "loader");
+  const res = await downy.checkFile(url);
+  if (req !== zipRequest || $("url").value.trim() !== url) return;
+  if (res.ok && res.data) openZip(url, res.data);
+  else if (res.ok) setHint("Press Enter to download this file into Downloads", false, "arrowDown");
+  else setHint(res.error, true, "alert");
+}
+
+function openZip(url, zip) {
+  state.picker = { url, zip };
+  renderPicker();
+  defaultHint();
+}
+
+function renderZip(p) {
+  const { url, zip } = state.picker;
+  const head = el("div", "pick-head");
+  const txt = el("div");
+  txt.append(el("div", "pick-title", zip.title), el("div", "pick-sub", `${files(zip.files.length)}, ${size(zip.size)}`));
+  head.append(el("span", "ft-tile", "ZIP"), txt);
+  const some = el("button", "btn primary");
+  const whole = el("button", "btn", "Download whole archive");
+  const cancel = el("button", "btn ghost", "Cancel");
+  for (const b of [some, whole, cancel]) b.type = "button";
+  let tree = null;
+  const sync = () => {
+    const n = tree.picked().length;
+    some.textContent = n ? `Download ${files(n)}` : "Pick files to download";
+    some.disabled = !n;
+  };
+  tree = fileTree(zip.files, { size, onChange: sync });
+  const start = async (picked) => {
+    closePicker();
+    $("url").value = "";
+    try {
+      const d = await call(downy.addFile, url, picked);
+      state.tab = "downloads";
+      state.folder = null;
+      flash(d.id);
+    } catch {}
+  };
+  some.onclick = () => start(tree.all() ? null : tree.picked());
+  whole.onclick = () => start(null);
+  cancel.onclick = closePicker;
+  const actions = el("div", "pick-actions");
+  actions.append(some, whole, cancel);
+  p.replaceChildren(head, tree.el, actions);
+  p.hidden = false;
+  sync();
+  some.focus();
+}
+
 function renderPicker() {
   const p = $("picker");
   if (!state.picker) {
@@ -1475,6 +1542,7 @@ function renderPicker() {
     p.replaceChildren();
     return;
   }
+  if (state.picker.zip) return renderZip(p);
   const { info } = state.picker;
   const head = el("div", "pick-head");
   const img = el("img");
@@ -1909,6 +1977,7 @@ function wire() {
   const takeLink = (text) => {
     $("url").value = text;
     if (isYoutube(text)) getFormats(text);
+    else if (isZipLink(text)) checkZip(text);
     else {
       $("url").focus();
       setHint("Press Enter to download this file into Downloads", false, "arrowDown");

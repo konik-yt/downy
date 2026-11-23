@@ -11,6 +11,7 @@ const { Updater } = require("./updater");
 const { Installer } = require("./installer");
 const { Prompts } = require("./prompt");
 const { parseClip } = require("./clip");
+const { readZip, zipView, chooseEntries } = require("./zip");
 const { fromApp, lockDown } = require("./guard");
 const { testVar } = require("./dev");
 
@@ -313,9 +314,28 @@ if (!app.requestSingleInstanceLock()) {
   });
   // Says whether a time range can be used for a video that is duration seconds long.
   handle("clip:check", (raw, duration) => parseClip(raw, Number(duration) || 0));
-  handle("add-file", (url) => {
+  // The composer's last file link, probed once: a pasted ZIP link shows its files, and Enter
+  // on any link the composer already checked starts that draft without a second probe.
+  let checked = null; // { url, draft, zip, at }
+  async function checkLink(url) {
     if (typeof url !== "string") throw new Error("That is not a valid link"); // draftFile checks the rest
-    return manager.addFile({ url });
+    if (checked?.url !== url || Date.now() - checked.at > 5 * 60 * 1000) {
+      const draft = await manager.draftFile({ url });
+      checked = { url, draft, zip: await readZip(draft), at: Date.now() };
+    }
+    return checked;
+  }
+  const zipOffer = ({ draft, zip }) => ({ title: draft.filename, size: draft.expected, files: zipView(zip) });
+  handle("file:check", async (url) => {
+    const c = await checkLink(url);
+    return c.zip ? zipOffer(c) : null;
+  });
+  // files: undefined asks for the file list of a ZIP, null takes the whole file, or entry indices.
+  handle("add-file", async (url, files) => {
+    const c = await checkLink(url);
+    if (c.zip && files === undefined) return { zip: zipOffer(c) };
+    checked = null;
+    return manager.commit(c.zip ? chooseEntries(c.draft, c.zip, files) : c.draft);
   });
   handle("pause", (id) => manager.pause(id));
   handle("resume", (id) => manager.resume(id));

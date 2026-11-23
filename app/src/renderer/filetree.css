@@ -2,12 +2,12 @@
    It uses the color tokens both pages define. */
 /* The confirm window's card drags the window, which would swallow clicks on the rows. */
 .ft { display: flex; flex-direction: column; gap: 8px; min-width: 0; -webkit-app-region: no-drag; }
-.ft-filter {
+.ft .ft-filter {
   height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: #03030a8c;
   color: var(--text); font: inherit; font-size: 13px; outline: none; user-select: text;
 }
-.ft-filter::placeholder { color: var(--faint); }
-.ft-filter:focus { border-color: #b4aaff55; box-shadow: 0 0 0 3px #8a7fe826; }
+.ft .ft-filter::placeholder { color: var(--faint); }
+.ft .ft-filter:focus { border-color: #b4aaff55; box-shadow: 0 0 0 3px #8a7fe826; }
 
 .ft-list {
   max-height: 260px; overflow-y: auto; padding: 4px 0; border-radius: 12px;
@@ -57,3 +57,5 @@
   box-shadow: inset 0 0 0 1px #b4aaff26; color: var(--accent-ink); font-size: 12px; font-weight: 700; letter-spacing: .06em;
 }
 .pick-actions { display: flex; gap: 8px; margin-top: 12px; }
+/* Docked at the bottom the panel is at most half the window, so the list leaves room for the buttons. */
+.main:not([data-view="idle"]) .picker .ft-list { max-height: max(96px, min(260px, calc(50vh - 240px))); }

@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("downy", {
   download: call("download"),
   checkClip: call("clip:check"),
   addFile: call("add-file"),
+  checkFile: call("file:check"),
   pause: call("pause"),
   resume: call("resume"),
   pauseAll: call("pause-all"),
