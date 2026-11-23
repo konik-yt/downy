@@ -990,7 +990,7 @@ function rowDetails(d) {
   if (d.clip) parts.push(`Clip ${formatTime(d.clip.start)} to ${formatTime(d.clip.end)}`);
   if (d.status === "downloading") {
     if (d.connections) parts.push(`${d.connections} ${d.connections === 1 ? "connection" : "connections"}`);
-    if (d.stream && d.stream.count > 1) parts.push(`${d.stream.role === "audio" ? "Audio" : "Video"}, part ${d.stream.index} of ${d.stream.count}`);
+    if (d.stream && d.stream.count > 1) parts.push(`${d.stream.role === "audio" ? "Audio" : d.stream.role.startsWith("zip") ? "Files" : "Video"}, part ${d.stream.index} of ${d.stream.count}`);
     parts.push(`${Math.floor(d.progress * 100)}%`);
   }
   if (d.status === "paused" && !(d.kind === "file" && d.resumable === false)) parts.push("Resumes where it stopped");
