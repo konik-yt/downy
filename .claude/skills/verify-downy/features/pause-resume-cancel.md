@@ -39,4 +39,5 @@ Preconditions:
 - The pause-quit check must read `downloads.json` before cleanup, since cleanup deletes `data/`.
 - After `[data-win=close]`, page commands fail with "the window closed". That is expected; only `doctor`, file reads and `cleanup` work then.
 - Part files are named `<id>.<role>.<ext>`. A file link has `<id>.file.bin`. A clip of a video has `<id>.video.init.mp4` and `<id>.video.data.mp4`, and the same for audio. A ZIP pick has one part per run of picked files: `<id>.zip1.bin`, `<id>.zip2.bin`.
-- Resume on `norange.bin` proves the restart message, not offsets: its `serverlog` shows a full 200 answer again after Resume.
+- `norange.bin` finishes before you can click. Use `slow-norange.bin` to pause a download that can't resume: wait for `document.querySelector('[data-id="<id>"][data-status=paused]')?.textContent`, which reads "Paused. This server cannot resume, so it starts over", and after Resume its `serverlog` shows a new request with no Range answered 200 with all 8388608 bytes.
+- `downy.state()` reports paused a moment before the row re-renders. Wait on the row's `data-status` when you read its text.

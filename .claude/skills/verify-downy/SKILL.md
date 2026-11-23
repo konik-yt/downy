@@ -31,6 +31,7 @@ It does this:
    - `file/small.bin`: 3 MB, answers Range requests, full speed.
    - `file/slow.bin`: 48 MB, answers Range requests, 128 KB/s per connection (about 1 MB/s at 8 connections). Use it whenever a download must still be running when you act on it.
    - `file/norange.bin`: 2 MB, ignores Range, like a simple server.
+   - `file/slow-norange.bin`: 8 MB, ignores Range, 256 KB/s. Use it to pause a download that can't resume.
    - `login`: answers with HTML and has no `.html` name, like a sign-in page. Downy must refuse it.
    - `page.html`: answers with HTML under an `.html` name. Downy downloads it, since the user linked to a page file.
    - `file/Sample.zip`: a ZIP with Range support, for Choose files. It holds `Sample/readme.txt`, `Sample/data.json`, `Sample/docs/guide.md`, `Sample/docs/notes.txt` and `Sample/big.bin` (4 MB, stored). `served.json` lists each entry as `/file/Sample.zip!/Sample/<path>` with its sha256, so `files` names the entry an extracted file matches.

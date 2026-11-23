@@ -328,6 +328,7 @@ const SERVED = {
   "/file/small.bin": { size: 3 * 1024 * 1024, ranges: true, note: "3 MB, Range support, full speed" },
   "/file/slow.bin": { size: 48 * 1024 * 1024, ranges: true, rate: 128 * 1024, note: "48 MB, Range support, 128 KB/s per connection (about 1 MB/s with 8 connections)" },
   "/file/norange.bin": { size: 2 * 1024 * 1024, ranges: false, note: "2 MB, ignores Range like a simple server" },
+  "/file/slow-norange.bin": { size: 8 * 1024 * 1024, ranges: false, rate: 256 * 1024, note: "8 MB, ignores Range, 256 KB/s, for pausing a download that can't resume" },
   // A link that answers with HTML, like a sign-in page. The name must not end in .html:
   // Downy downloads an .html link on purpose, since the user asked for that page.
   "/login": { body: "<!doctype html><title>Sign in</title><p>A web page, not a file.", type: "text/html", note: "a web page with no .html name, which Downy must refuse" },
