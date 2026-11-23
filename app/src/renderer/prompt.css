@@ -90,6 +90,14 @@ h1, p { margin: 0; }
 .name input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; user-select: text; }
 .ext { color: var(--faint); padding-left: 2px; }
 
+/* The range of a video to download: two times and its length in words. */
+.clip-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin-top: -4px; }
+.clip-field { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: 12.5px; }
+.clip-field .box { flex: 1; min-width: 0; }
+.clip-field input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; user-select: text; font-variant-numeric: tabular-nums; }
+.clip-note { grid-column: 1 / -1; padding: 0 2px; color: var(--muted); font-size: 12.5px; }
+.clip-note:empty { display: none; }
+
 /* The formats in one row, each with its size. */
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 6px; }
 .pick {

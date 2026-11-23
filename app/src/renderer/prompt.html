@@ -18,7 +18,7 @@
       <button type="button" class="x on-pic" id="close" aria-label="Cancel" title="Cancel" data-icon="x"></button>
     </div>
     <h1 class="title" id="title"></h1>
-    <p class="sub"><span id="sub"></span><button type="button" class="link" id="rename" aria-expanded="false" aria-controls="nameRow">Rename</button></p>
+    <p class="sub"><span id="sub"></span><button type="button" class="link" id="rename" aria-expanded="false" aria-controls="nameRow">Rename</button><button type="button" class="link" id="trim" aria-expanded="false" aria-controls="clipRow" hidden>Trim</button></p>
     <label class="name-row" for="name" id="nameRow" hidden>
       <span class="sr-only">File name</span>
       <span class="box name">
@@ -26,6 +26,11 @@
         <span class="ext" id="ext"></span>
       </span>
     </label>
+    <div class="clip-row" id="clipRow" hidden>
+      <label class="clip-field"><span>From</span><span class="box"><input id="clipFrom" inputmode="numeric" spellcheck="false" aria-describedby="clipNote"></span></label>
+      <label class="clip-field"><span>To</span><span class="box"><input id="clipTo" inputmode="numeric" spellcheck="false" aria-describedby="clipNote"></span></label>
+      <p class="clip-note" id="clipNote" aria-live="polite"></p>
+    </div>
     <div class="tiles" id="tiles" role="radiogroup" aria-label="Format" hidden></div>
   </section>
 
@@ -62,6 +67,7 @@
 </form>
 
 <script src="icons.js"></script>
+<script src="times.js"></script>
 <script src="names.js"></script>
 <script src="prompt.js"></script>
 </body>

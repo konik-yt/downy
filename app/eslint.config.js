@@ -51,14 +51,15 @@ module.exports = [
   },
   {
     // Plain scripts that share one window: preload.js gives them `downy`, and icons.js
-    // sets icon() and paintIcons() for the others, names.js sets batchName() and motion.js
-    // sets roll(), morph(), popIcon() and placePill().
+    // sets icon() and paintIcons() for the others, names.js sets batchName(), times.js sets
+    // parseTime(), formatTime() and timeInWords(), and motion.js sets roll(), morph(), popIcon()
+    // and placePill().
     basePath: ROOT,
     files: ["app/src/renderer/**/*.js"],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: "script",
-      globals: { ...globals.browser, downy: "readonly", icon: "readonly", paintIcons: "readonly", batchName: "readonly", roll: "readonly", morph: "readonly", popIcon: "readonly", placePill: "readonly" },
+      globals: { ...globals.browser, downy: "readonly", icon: "readonly", paintIcons: "readonly", batchName: "readonly", parseTime: "readonly", formatTime: "readonly", timeInWords: "readonly", roll: "readonly", morph: "readonly", popIcon: "readonly", placePill: "readonly" },
     },
     // A page's own function may share a name with a newer browser global, like when().
     rules: { ...rules, "no-redeclare": ["error", { builtinGlobals: false }] },
