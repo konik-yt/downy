@@ -211,8 +211,8 @@ function zipView(directory) {
   return directory.entries.filter((e) => !e.dir).map((e) => ({ i: e.index, name: e.name, size: e.size, why: whyNot(e) }));
 }
 
-// Turns a file draft into a download of only the chosen files. files lists entry indices from
-// the window; null or every file in the archive keeps the draft a download of the whole archive.
+// A download of only the chosen files, made from a file draft without changing it. files lists
+// entry indices from a window; null, or every file in the archive, returns the draft itself.
 function chooseEntries(draft, directory, files) {
   if (files == null) return draft;
   if (!Array.isArray(files)) throw new Error("Pick the files to download");
@@ -226,17 +226,20 @@ function chooseEntries(draft, directory, files) {
   if (picked.length === directory.entries.filter((e) => !e.dir).length) return draft;
 
   const base = draft.streams[0];
-  draft.streams = planRuns(directory, picked).map((r, k) => ({
+  const streams = planRuns(directory, picked).map((r, k) => ({
     ...base, role: `zip${k + 1}`, ext: "bin", offset: r.offset, size: r.size, ranges: true, path: "", segments: null, index: k,
   }));
-  draft.zip = {
-    archive: draft.filename,
-    entries: picked.sort((a, b) => a.offset - b.offset).map(({ name, size, csize, offset, method, crc }) => ({ name, size, csize, offset, method, crc })),
-  };
-  draft.expected = draft.streams.reduce((n, s) => n + s.size, 0);
   const one = picked.length === 1 ? entryParts(picked[0].name).pop() : "";
-  draft.title = one ? `${one} from ${draft.filename}` : `${picked.length} files from ${draft.filename}`;
-  return draft;
+  return {
+    ...draft,
+    title: one ? `${one} from ${draft.filename}` : `${picked.length} files from ${draft.filename}`,
+    streams,
+    expected: streams.reduce((n, s) => n + s.size, 0),
+    zip: {
+      archive: draft.filename,
+      entries: picked.sort((a, b) => a.offset - b.offset).map(({ name, size, csize, offset, method, crc }) => ({ name, size, csize, offset, method, crc })),
+    },
+  };
 }
 
 // ------------------------------------------------------------ extracting

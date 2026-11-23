@@ -90,7 +90,10 @@ test("chooseEntries keeps a whole-archive download unless a real subset is picke
   assert.equal(chooseEntries(whole, dir, null), whole);
   assert.equal(chooseEntries(draft(), dir, [0, 2, 3, 4]).zip, undefined, "every file picked is the whole archive");
 
-  const job = chooseEntries(draft(), dir, [3, 0]);
+  const original = draft();
+  const job = chooseEntries(original, dir, [3, 0]);
+  assert.equal(original.streams.length, 1);
+  assert.equal(original.zip, undefined, "the draft stays a whole-archive download");
   assert.equal(job.title, "2 files from Pack.zip");
   assert.deepEqual(job.zip.entries.map((e) => e.name), ["stored.txt", "docs/deep/after.bin"]);
   assert.equal(job.streams.length, 1, "small gaps join into one run");
