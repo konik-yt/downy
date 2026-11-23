@@ -10,6 +10,7 @@ const { ExtensionCopy, openChrome } = require("./extension");
 const { Updater } = require("./updater");
 const { Installer } = require("./installer");
 const { Prompts } = require("./prompt");
+const { parseClip } = require("./clip");
 const { fromApp, lockDown } = require("./guard");
 const { testVar } = require("./dev");
 
@@ -305,11 +306,13 @@ if (!app.requestSingleInstanceLock()) {
     const { info } = await cache.get(url);
     return { title: info.title, thumbnail: info.thumbnail, duration: info.duration, channel: info.channel || info.uploader, options: publicOptions(buildOptions(info)) };
   });
-  handle("download", (url, option) => {
+  handle("download", (url, option, clip) => {
     if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");
     if (typeof option !== "string") throw new Error("Pick a format first");
-    return manager.add(url, option);
+    return manager.add(url, option, {}, clip);
   });
+  // Says whether a time range can be used for a video that is duration seconds long.
+  handle("clip:check", (raw, duration) => parseClip(raw, Number(duration) || 0));
   handle("add-file", (url) => {
     if (typeof url !== "string") throw new Error("That is not a valid link"); // draftFile checks the rest
     return manager.addFile({ url });
