@@ -10,6 +10,7 @@ const tools = require("./tools");
 const { buildOptions, isYoutubeUrl, TTL: INFO_TTL } = require("./formats");
 const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("./segmented");
 const { parseClip, label: clipLabel, estimate: clipEstimate, planStream, split: splitStream } = require("./clip");
+const zip = require("./zip");
 
 const ACTIVE = new Set(["downloading", "merging", "converting"]);
 const FINISHED = new Set(["done", "error", "cancelled"]);
@@ -290,7 +291,7 @@ class Manager extends EventEmitter {
     delete job.cookies;
     if (custom.dir && path.isAbsolute(String(custom.dir))) job.customDir = path.resolve(String(custom.dir));
     if (custom.name && cleanName(custom.name)) job.customName = cleanName(custom.name);
-    if (job.customName && job.kind === "file") job.title = job.filename = this.targetName(job);
+    if (job.customName && job.kind === "file" && !job.zip) job.title = job.filename = this.targetName(job);
   }
 
   // Adds drafts from the confirm window as one batch, in the order given, before any of them starts.
@@ -369,7 +370,7 @@ class Manager extends EventEmitter {
       id, url, source: "web", title: name, filename: name, thumbnail: null, duration: 0,
       kind: "file", ext: st.ext, label: st.ext ? st.ext.toUpperCase() : "File", folder: FILES_DIR,
       mode: "segmented", streams: [st], expected: st.size || 0, downloaded: 0, speed: 0, eta: null,
-      status: "queued", error: "", filepath: "", created: Date.now(), finished: null, resumable: info.ranges,
+      status: "queued", error: "", filepath: "", created: Date.now(), finished: null, resumable: info.ranges, mime: info.type,
       cookies: cookies || "", // commit() moves this into this.cookies
     };
     return job;
@@ -751,7 +752,7 @@ class Manager extends EventEmitter {
       if (j.mode === "ytdlp") await this.runYtdlp(j, rt);
       else await this.runSegmented(j, rt);
       if (j.mode === "segmented") await this.postProcess(j, rt);
-      markFromInternet(j.filepath, j.url, j.streams?.[0]?.headers?.Referer);
+      if (!j.zip) markFromInternet(j.filepath, j.url, j.streams?.[0]?.headers?.Referer); // extract marks each file
       j.status = "done";
       j.downloaded = j.expected = Math.max(j.expected, j.downloaded);
       j.finished = Date.now();
@@ -833,6 +834,11 @@ class Manager extends EventEmitter {
   }
 
   async postProcess(j, rt) {
+    if (j.zip) {
+      const mark = (f) => markFromInternet(f, j.url, j.streams[0]?.headers?.Referer);
+      j.filepath = await zip.extract(j, { dir: this.targetDir(j), signal: rt.ctrl.signal, place: { clean: safeFileName, unique: uniquePath, mark } });
+      return;
+    }
     const out = uniquePath(path.join(this.targetDir(j), this.targetName(j)));
     if (j.kind === "file") {
       const from = j.streams[0].path;
