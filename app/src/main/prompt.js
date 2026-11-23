@@ -8,6 +8,7 @@ const crypto = require("crypto");
 const { BrowserWindow, screen, ipcMain, dialog } = require("electron");
 const { buildOptions, publicOptions } = require("./formats");
 const { parseClip } = require("./clip");
+const { readZip, zipView, chooseEntries } = require("./zip");
 const { fromApp } = require("./guard");
 const { testVar } = require("./dev");
 
@@ -111,11 +112,12 @@ class Prompts {
   // A Chrome download. The link is checked first, so a link Downy can't use stays in Chrome.
   async openFile(spec) {
     const draft = await this.manager.draftFile(spec);
+    const zip = await readZip(draft, spec.mime);
     return this.open({
-      kind: "file", url: spec.url, draft, site: siteOf(spec.url),
+      kind: "file", url: spec.url, draft, zip, site: siteOf(spec.url),
       view: {
         kind: "file", title: draft.filename, site: siteOf(spec.url), size: draft.expected || 0, ext: draft.ext || "",
-        optionId: "file", targets: { file: this.manager.target(draft) },
+        optionId: "file", targets: { file: this.manager.target(draft) }, zip: zip && zipView(zip),
       },
     });
   }
@@ -178,6 +180,7 @@ class Prompts {
   forget(item) {
     if (item.state === "open") item.state = "cancelled";
     item.draft = null;
+    item.zip = null;
     setTimeout(() => this.items.delete(item.id), KEEP);
   }
 
@@ -210,7 +213,8 @@ class Prompts {
     return this.view(box);
   }
 
-  // choice for one download: { optionId, dir, name, clip }.
+  // choice for one download: { optionId, dir, name, clip, files }, where files lists the entries picked
+  // from a ZIP, or is left out for the whole file.
   // For several, or a batch: { order, formats, mode, dir }, where order lists request ids
   // top to bottom and formats maps a video's request id to the format picked on its row.
   async submit(box, choice) {
@@ -222,7 +226,7 @@ class Prompts {
         const item = box.entries[0];
         const d = item.kind === "video"
           ? await this.manager.add(item.url, choice.optionId || item.view.optionId, custom, choice.clip)
-          : this.manager.commit(item.draft, custom);
+          : this.manager.commit(item.zip ? chooseEntries(item.draft, item.zip, choice.files) : item.draft, custom);
         this.started(item, d);
         box.win?.close();
         this.onStart(d);

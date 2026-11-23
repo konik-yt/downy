@@ -127,6 +127,8 @@ function renderSingle() {
     }));
   }
   applySingle();
+  $("choose").hidden = !e.zip;
+  showPicked();
 }
 
 // Left and right arrows move along the format tiles, like a radio group.
@@ -198,6 +200,32 @@ function showClip(seq, r) {
   $("go").disabled = bad;
   showError(bad ? r.error : "");
   applySingle();
+}
+
+// A ZIP on a server that sends parts of files can be downloaded in part: only the files picked
+// in the tree. Closing the tree goes back to the whole archive, like "Keep the name" does.
+let tree = null;
+
+function toggleFiles() {
+  const box = $("zipBox");
+  box.hidden = !box.hidden;
+  if (!box.hidden && !tree) {
+    tree = fileTree(single().zip, { size, onChange: showPicked });
+    box.append(tree.el);
+  }
+  $("choose").textContent = box.hidden ? "Choose files" : "Keep all files";
+  $("choose").setAttribute("aria-expanded", String(!box.hidden));
+  if (!box.hidden && !$("nameRow").hidden) toggleRename();
+  $("rename").hidden = !box.hidden;
+  showPicked();
+}
+
+// The entries picked in the tree, or null for the whole file.
+const pickedFiles = () => (tree && !isGroup() && !$("zipBox").hidden && !tree.all() ? tree.picked() : null);
+
+function showPicked() {
+  const n = pickedFiles()?.length;
+  $("goText").textContent = n == null ? "Download" : n ? `Download ${n} ${n === 1 ? "file" : "files"}` : "Pick files to download";
 }
 
 // ------------------------------------------------- several downloads, or a batch
@@ -395,11 +423,13 @@ async function submit() {
   await clipRun;
   const go = $("go");
   if (go.disabled) return;
+  const files = pickedFiles();
+  if (files && !files.length) return showError("Pick at least one file");
   go.disabled = true;
   showError("");
   const choice = isGroup()
     ? { order, formats, mode, dir: dirEdited ? dir : "" }
-    : { optionId, dir: dirEdited ? dir : "", name: nameEdited && $("name").value.trim() ? $("name").value.trim() : "", clip };
+    : { optionId, dir: dirEdited ? dir : "", name: nameEdited && $("name").value.trim() ? $("name").value.trim() : "", clip, files };
   const res = await downy.promptSubmit(choice);
   if (!res.ok) {
     go.disabled = false;
@@ -431,6 +461,7 @@ function fit() {
   $("trim").onclick = toggleTrim;
   $("clipFrom").addEventListener("input", checkClip);
   $("clipTo").addEventListener("input", checkClip);
+  $("choose").onclick = toggleFiles;
   $("change").onclick = async () => {
     const r = await downy.promptChooseFolder(dir || view.dir || view.root);
     if (r.ok && r.data) {
