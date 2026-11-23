@@ -9,6 +9,7 @@ const { EventEmitter } = require("events");
 const tools = require("./tools");
 const { buildOptions, isYoutubeUrl, TTL: INFO_TTL } = require("./formats");
 const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("./segmented");
+const { parseClip, label: clipLabel, estimate: clipEstimate, planStream, split: splitStream } = require("./clip");
 
 const ACTIVE = new Set(["downloading", "merging", "converting"]);
 const FINISHED = new Set(["done", "error", "cancelled"]);
@@ -197,7 +198,9 @@ class Manager extends EventEmitter {
     let progress = 0;
     if (j.status === "done") progress = 1;
     else if (expected) progress = Math.min(j.downloaded / expected, 0.999);
-    const current = j.streams?.find((s) => !streamDone(s)) || j.streams?.[j.streams.length - 1];
+    // The few bytes of a clip's init stream finish at once and are not worth showing.
+    const shown = j.streams?.filter((s) => s.part !== "init");
+    const current = shown?.find((s) => !streamDone(s)) || shown?.[shown.length - 1];
     const rt = this.runtime.get(j.id);
     let segments = [];
     if (current?.segments && current.size) {
@@ -214,7 +217,8 @@ class Manager extends EventEmitter {
       kind: j.kind, status: j.status, error: j.error, downloaded: j.downloaded, expected, progress,
       speed: j.speed || 0, eta: j.eta, filepath: j.filepath, filename: j.filepath ? path.basename(j.filepath) : "",
       created: j.created, finished: j.finished, order: j.order, mode: j.mode, phase: j.phase || "",
-      stream: current ? { role: current.role, index: j.streams.indexOf(current) + 1, count: j.streams.length } : null,
+      stream: current ? { role: current.role, index: shown.indexOf(current) + 1, count: shown.length } : null,
+      clip: j.clip || null,
       segments, connections: segments.filter((s) => s.live).length || (rt?.proc ? this.settings.get().connections : 0),
       postProgress: j.postProgress || 0, resumable: j.resumable,
       batch: j.batch || null, batchIndex: j.batchIndex || 0, batchAt: j.batchAt || 0, batchMode: j.batch ? j.batchMode || "one" : null,
@@ -259,8 +263,9 @@ class Manager extends EventEmitter {
 
   // A download is built as a draft first, so the confirm window can show its
   // default folder and name, then added with commit() once the user agrees.
-  async add(url, optionId, custom) {
-    return this.commit(await this.draftVideo(url, optionId), custom);
+  // clip is { start, end } in seconds, or empty for the whole video.
+  async add(url, optionId, custom, clip) {
+    return this.commit(await this.draftVideo(url, optionId, clip), custom);
   }
 
   async addFile(spec, custom) {
@@ -309,11 +314,13 @@ class Manager extends EventEmitter {
     return { dir: this.dirFor(job).abs, name: this.targetName(job) };
   }
 
-  async draftVideo(url, optionId) {
+  // rawClip comes from outside, so it is checked here against the length of the video.
+  async draftVideo(url, optionId, rawClip) {
     const entry = await this.cache.get(url);
     const option = buildOptions(entry.info).find((o) => o.id === optionId);
     if (!option) throw new Error("That format is not available for this video");
     const info = entry.info;
+    const clip = parseClip(rawClip, info.duration || 0);
     const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     const http = option.streams.length > 0 && option.streams.every((s) => /^https?$/.test(s.protocol));
     const job = {
@@ -322,9 +329,10 @@ class Manager extends EventEmitter {
       selector: option.selector || option.streams.map((s) => s.formatId).join("+"),
       mode: http ? "segmented" : "ytdlp",
       streams: option.streams.map((s, i) => ({ ...s, path: "", segments: null, index: i })),
-      expected: option.size || 0, downloaded: 0, speed: 0, eta: null,
+      expected: clipEstimate(option.size || 0, clip, info.duration || 0), downloaded: 0, speed: 0, eta: null,
       status: "queued", error: "", filepath: "", created: Date.now(), finished: null, infoFile: entry.file,
     };
+    if (clip) job.clip = clip;
     return job;
   }
 
@@ -731,11 +739,8 @@ class Manager extends EventEmitter {
       }
       return `${this.ytdlpBase(j)}.${ext}`;
     }
-    const base = safeName(j.title);
-    if (j.kind === "video") return j.height ? `${base} (${j.height}p).mp4` : `${base}.mp4`;
-    if (j.kind === "mp3") return `${base}.mp3`;
     if (j.kind === "file") return safeFileName(j.filename);
-    return `${base}.m4a`;
+    return `${this.ytdlpBase(j)}.${this.extFor(j)}`;
   }
 
   async run(j, rt) {
@@ -789,15 +794,29 @@ class Manager extends EventEmitter {
     this.saveSoon();
   }
 
+  // Cuts each stream that has an index into its init bytes and the bytes of the clip, so only those
+  // are downloaded. A stream without an index stays whole. It runs once: a resumed job keeps its plan.
+  async planClip(j, rt) {
+    if (!j.clip || j.clipPlanned) return;
+    const opts = { signal: rt.ctrl.signal, refresh: () => this.refreshUrls(j) };
+    const plans = [];
+    for (const st of j.streams) plans.push(await planStream(st, j.clip, opts));
+    j.streams = j.streams.flatMap((st, i) => (plans[i] ? splitStream(st, plans[i]) : [st]));
+    j.clipPlanned = true;
+    j.expected = j.streams.reduce((n, s) => n + (s.size || 0), 0);
+    this.saveSoon();
+  }
+
   async runSegmented(j, rt) {
     const parts = this.partsDir();
     const cookie = this.cookies.get(j.id);
     if (cookie) for (const st of j.streams) st.headers = { ...st.headers, Cookie: cookie };
     // Links from YouTube expire after a few hours, so a download resumed later needs fresh ones.
     if (j.kind !== "file" && j.streams.some((st) => !streamDone(st) && linkExpired(st.url))) await this.refreshUrls(j);
+    await this.planClip(j, rt);
     for (const st of j.streams) {
       if (streamDone(st) && st.path && fs.existsSync(st.path)) continue;
-      if (!st.path) st.path = path.join(parts, `${j.id}.${st.role}.${st.ext || "bin"}`);
+      if (!st.path) st.path = path.join(parts, [j.id, st.role, st.part, st.ext || "bin"].filter(Boolean).join("."));
       if (st.segments && !fs.existsSync(st.path)) st.segments = null; // part file was deleted
       await downloadStream(st, {
         connections: this.settings.get().connections,
@@ -829,23 +848,25 @@ class Manager extends EventEmitter {
       j.filepath = out;
       return;
     }
-    const inputs = j.streams.map((s) => s.path);
+    const media = this.mediaInputs(j);
+    const inputs = media.flatMap((i) => (j.clip ? ["-ss", String(i.seek), "-i", i.url] : ["-i", i.url]));
+    const cut = j.clip ? ["-t", String(j.clip.end - j.clip.start)] : [];
     const meta = ["-metadata", `title=${j.title}`, "-metadata", `comment=${j.url}`];
     let args;
-    if (j.kind === "video" && inputs.length === 2) {
+    if (j.kind === "video" && media.length === 2) {
       j.status = "merging";
-      args = ["-i", inputs[0], "-i", inputs[1], "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", ...meta, "-movflags", "+faststart", out];
+      args = [...inputs, "-map", "0:v:0", "-map", "1:a:0", "-c", "copy", ...cut, ...meta, "-movflags", "+faststart", out];
     } else if (j.kind === "video") {
       j.status = "merging";
-      args = ["-i", inputs[0], "-c", "copy", ...meta, "-movflags", "+faststart", out];
+      args = [...inputs, "-c", "copy", ...cut, ...meta, "-movflags", "+faststart", out];
     } else if (j.kind === "mp3") {
       j.status = "converting";
-      args = ["-i", inputs[0], "-vn", "-c:a", "libmp3lame", "-q:a", "0", ...meta, out];
+      args = [...inputs, "-vn", "-c:a", "libmp3lame", "-q:a", "0", ...cut, ...meta, out];
     } else {
       j.status = "converting";
       // Without m4a audio the picker falls back to webm (opus), which an .m4a file cannot hold.
       const codec = j.streams[0].ext === "m4a" ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"];
-      args = ["-i", inputs[0], "-vn", ...codec, ...meta, out];
+      args = [...inputs, "-vn", ...codec, ...cut, ...meta, out];
     }
     j.postProgress = 0;
     this.changed();
@@ -869,6 +890,21 @@ class Manager extends EventEmitter {
     j.filepath = out;
   }
 
+  // What ffmpeg reads for each role. A clip's init bytes and clip bytes are two files that its concat
+  // protocol reads as one. ffmpeg counts such a file from the start of its first fragment, so the
+  // seek is the clip start less the time that fragment starts.
+  mediaInputs(j) {
+    const roles = [...new Set(j.streams.map((s) => s.role))];
+    return roles.map((role) => {
+      const parts = j.streams.filter((s) => s.role === role);
+      const t0 = parts[parts.length - 1].t0 || 0;
+      return {
+        url: parts.length > 1 ? `concat:${parts.map((s) => s.path).join("|")}` : parts[0].path,
+        seek: j.clip ? Math.max(0, Number((j.clip.start - t0).toFixed(6))) : null,
+      };
+    });
+  }
+
   ffmpeg(args, j, rt) {
     return new Promise((resolve, reject) => {
       const proc = spawn(tools.find("ffmpeg"), ["-y", "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1", ...args], { windowsHide: true });
@@ -876,8 +912,9 @@ class Manager extends EventEmitter {
       let err = "";
       proc.stdout.on("data", (d) => {
         const m = /out_time_(?:us|ms)=(\d+)/.exec(String(d));
-        if (m && j.duration) {
-          j.postProgress = Math.min(1, Number(m[1]) / 1e6 / j.duration);
+        const length = j.clip ? j.clip.end - j.clip.start : j.duration;
+        if (m && length) {
+          j.postProgress = Math.min(1, Number(m[1]) / 1e6 / length);
           this.changed();
         }
       });
@@ -976,7 +1013,9 @@ class Manager extends EventEmitter {
   ytdlpBase(j) {
     // A name typed with the extension (like "clip.mp4") must not end up as "clip.mp4.mp4".
     if (j.customName) return safeName(j.customName.replace(new RegExp(`\\.${this.extFor(j)}$`, "i"), ""));
-    return safeName(j.title) + (j.kind === "video" && j.height ? ` (${j.height}p)` : "");
+    // "Title (720p, 1m00s-2m30s)": the quality and the clip, so a clip never shares a name with the whole video.
+    const extra = [j.kind === "video" && j.height ? `${j.height}p` : "", j.clip ? clipLabel(j.clip) : ""].filter(Boolean);
+    return safeName(j.title) + (extra.length ? ` (${extra.join(", ")})` : "");
   }
 
   // Deletes a job's temporary files. Only ever touches files in a parts folder.
