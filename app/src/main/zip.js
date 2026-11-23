@@ -306,17 +306,20 @@ async function extract(j, { dir, signal, place }) {
   const runOf = (e) => j.streams.find((st) => e.offset >= st.offset && e.offset < st.offset + st.size);
   const single = entries.length === 1;
   let root = dir;
+  const name = place.clean(archive.replace(/\.zip$/i, ""));
+  const names = entries.map((e) => entryParts(e.name, place.clean));
+  // Archives often hold one folder named like themselves. The folder made here already has that name.
+  const nested = names.every((p) => p.length > 1 && p[0].toLowerCase() === name.toLowerCase());
   if (!single) {
-    const name = place.clean(archive.replace(/\.zip$/i, ""));
     root = path.join(dir, name);
     for (let k = 2; fs.existsSync(root); k++) root = path.join(dir, `${name} (${k})`);
     fs.mkdirSync(root);
   }
   let file = "";
   try {
-    for (const e of entries) {
-      const parts = entryParts(e.name, place.clean);
-      file = place.unique(path.join(root, ...(single ? parts.slice(-1) : parts)));
+    for (const [k, e] of entries.entries()) {
+      const parts = names[k];
+      file = place.unique(path.join(root, ...(single ? parts.slice(-1) : nested ? parts.slice(1) : parts)));
       const rel = path.relative(root, file);
       if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`${e.name} would land outside the folder`);
       fs.mkdirSync(path.dirname(file), { recursive: true });

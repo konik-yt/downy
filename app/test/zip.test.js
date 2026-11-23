@@ -159,6 +159,21 @@ test("extract unpacks stored, deflated and descriptor entries into a folder name
   assert.ok(!marked.includes(where));
 });
 
+test("extract does not repeat a top folder named like the archive", async (t) => {
+  const list = [{ name: "Pack/a.txt", data: "a" }, { name: "Pack/docs/b.txt", data: "b" }, { name: "Pack/c.txt", data: "c" }];
+  const { work, job } = await runJob(t, list, [0, 1]);
+  const where = await extract(job, { dir: work, signal: new AbortController().signal, place: place() });
+  assert.equal(where, path.join(work, "Pack"));
+  assert.equal(fs.readFileSync(path.join(where, "a.txt"), "utf8"), "a");
+  assert.equal(fs.readFileSync(path.join(where, "docs", "b.txt"), "utf8"), "b");
+});
+
+test("extract keeps a top folder named otherwise", async (t) => {
+  const { work, job } = await runJob(t, [{ name: "src/a.txt", data: "a" }, { name: "src/b.txt", data: "b" }], [0, 1]);
+  const where = await extract(job, { dir: work, signal: new AbortController().signal, place: place() });
+  assert.equal(fs.readFileSync(path.join(where, "src", "a.txt"), "utf8"), "a");
+});
+
 test("extract puts one file straight into the folder under its own name", async (t) => {
   const { work, job } = await runJob(t, ENTRIES.slice(0, 5), [3]);
   const where = await extract(job, { dir: work, signal: new AbortController().signal, place: place() });
