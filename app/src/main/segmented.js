@@ -86,6 +86,8 @@ async function probe(st, signal) {
 
 /**
  * Downloads `st` (a stream record) into st.path.
+ * A stream with an offset holds only st.size bytes of the remote file, from st.offset on,
+ * such as a few files out of a ZIP archive. It must come with its size and ranges set.
  * opts: connections, signal, onBytes(n), refresh() -> Promise that updates st.url/headers.
  */
 async function downloadStream(st, opts) {
@@ -192,8 +194,9 @@ function runWorkers(st, fh, opts) {
       while (seg.pos <= seg.end) {
         if (local.signal.aborted) throw new AbortError();
         const to = Math.min(seg.end, seg.pos + CHUNK - 1);
+        const at = st.offset || 0;
         try {
-          const res = await fetch(st.url, { headers: headersFor(st, `bytes=${seg.pos}-${to}`), signal: local.signal });
+          const res = await fetch(st.url, { headers: headersFor(st, `bytes=${at + seg.pos}-${at + to}`), signal: local.signal });
           if (res.status === 403 || res.status === 410) {
             res.body?.cancel().catch(() => {});
             if (++attempts > 3) throw Object.assign(new Error("YouTube refused the download link. Try again later."), { retry: false });

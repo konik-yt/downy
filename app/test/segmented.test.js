@@ -190,3 +190,19 @@ test("streamDone and streamBytes treat a stream with no segments as not started"
   assert.equal(streamDone({}), false);
   assert.equal(streamBytes({}), 0);
 });
+
+test("downloadStream with an offset fetches only that part of the file", async (t) => {
+  const body = randomBytes(6 * MB);
+  const { base, log } = await fileServer(t, { "/z": { body } });
+  const dir = tempDir(t);
+  const from = 2 * MB + 17;
+  const size = 3 * MB + 5;
+  const st = { ...stream(dir, `${base}/z`), offset: from, size, ranges: true };
+  await downloadStream(st, opts());
+  assert.ok(fs.readFileSync(st.path).equals(body.subarray(from, from + size)));
+  assert.equal(streamDone(st), true);
+  for (const r of log) {
+    const [a, b] = /^bytes=(\d+)-(\d+)$/.exec(r.range).slice(1).map(Number);
+    assert.ok(a >= from && b < from + size, `${r.range} stays inside the part`);
+  }
+});
