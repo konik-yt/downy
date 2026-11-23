@@ -142,6 +142,19 @@ function buildOptions(info) {
   return options;
 }
 
+// YouTube's storyboard: sheets of small frames, one frame every few seconds, which the trimmer
+// shows as a filmstrip. The biggest frames up to 320 px wide, or null when the site has none.
+function storyboard(info) {
+  const boards = (info.formats || []).filter((f) => f.format_note === "storyboard" && f.rows > 0 && f.columns > 0 && f.fps > 0
+    && f.width > 0 && f.height > 0 && f.fragments?.length && f.fragments.every((x) => /^https:/.test(x.url || "")));
+  const fit = boards.filter((f) => f.width <= 320);
+  const best = (fit.length ? fit : boards).reduce((a, f) => (!a || (fit.length ? f.width > a.width : f.width < a.width) ? f : a), null);
+  if (!best) return null;
+  const perSheet = best.rows * best.columns;
+  const count = Math.min(best.fragments.length * perSheet, Math.ceil((info.duration || 0) * best.fps) || best.fragments.length * perSheet);
+  return { width: best.width, height: best.height, rows: best.rows, cols: best.columns, fps: best.fps, count, sheets: best.fragments.map((x) => x.url) };
+}
+
 function publicOptions(options) {
   return options.map(({ id, kind, label, size, sizeText, folder }) => ({ id, kind, label, size, sizeText, folder }));
 }
@@ -240,4 +253,4 @@ class InfoCache {
   }
 }
 
-module.exports = { isYoutubeUrl, isHttpUrl, humanSize, buildOptions, publicOptions, cookieFile, InfoCache, TTL };
+module.exports = { isYoutubeUrl, isHttpUrl, humanSize, buildOptions, publicOptions, storyboard, cookieFile, InfoCache, TTL };

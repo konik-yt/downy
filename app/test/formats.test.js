@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { isYoutubeUrl, isHttpUrl, humanSize, buildOptions, publicOptions, cookieFile } = require("../src/main/formats");
+const { isYoutubeUrl, isHttpUrl, humanSize, buildOptions, publicOptions, cookieFile, storyboard } = require("../src/main/formats");
 
 test("isYoutubeUrl accepts YouTube hosts and nothing that only looks like one", () => {
   for (const url of [
@@ -137,4 +137,17 @@ test("cookieFile keeps a cookie on one line and skips broken entries", () => {
   assert.equal(lines.length, 2);
   assert.equal(lines[1].split("\t").length, 7);
   assert.doesNotMatch(text, /\r/);
+});
+
+test("storyboard picks the biggest frames up to 320 px and counts the frames the video has", () => {
+  const sb = (id, width, height, rows, columns, sheets) => ({
+    format_id: id, format_note: "storyboard", ext: "mhtml", protocol: "mhtml", width, height, rows, columns, fps: 0.2,
+    fragments: Array.from({ length: sheets }, (_, i) => ({ url: `https://i.ytimg.com/sb/x/${id}/M${i}.jpg`, duration: 45 })),
+  });
+  const info = { duration: 635, formats: [sb("sb3", 48, 27, 10, 10, 1), sb("sb1", 160, 90, 5, 5, 6), sb("sb0", 320, 180, 3, 3, 15), sb("big", 640, 360, 2, 2, 40)] };
+  const board = storyboard(info);
+  assert.deepEqual({ ...board, sheets: board.sheets.length }, { width: 320, height: 180, rows: 3, cols: 3, fps: 0.2, count: 127, sheets: 15 });
+  assert.equal(board.sheets[0], "https://i.ytimg.com/sb/x/sb0/M0.jpg");
+  assert.equal(storyboard({ duration: 10, formats: [{ format_id: "18", vcodec: "avc1" }] }), null);
+  assert.equal(storyboard({ duration: 10, formats: [{ ...sb("sb0", 320, 180, 3, 3, 1), fragments: [{ url: "http://plain/x.jpg" }] }] }), null, "https only");
 });

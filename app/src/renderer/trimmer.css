@@ -1,0 +1,49 @@
+/* The trimmer in the main window and the confirm window. It uses the color tokens both pages define.
+   The confirm window's card drags the window, which would swallow drags on the strip. */
+.trim { display: flex; flex-direction: column; gap: 8px; padding: 0 14px; -webkit-app-region: no-drag; user-select: none; touch-action: none; }
+
+.trim-track { position: relative; height: 52px; border-radius: 6px; background: var(--track, #16143a); cursor: pointer; }
+.trim-strip { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px; }
+.trim-shade { position: absolute; top: 0; bottom: 0; left: 0; background: #03030ab8; pointer-events: none; }
+.trim-shade.l { border-radius: 6px 0 0 6px; }
+.trim-shade.r { left: auto; right: 0; border-radius: 0 6px 6px 0; }
+
+/* The part to keep: a frame with a handle on each end, outside the part so no frame hides under it. */
+.trim-sel {
+  --edge: #ffffff4d;
+  position: absolute; top: -3px; bottom: -3px; border-top: 3px solid var(--edge); border-bottom: 3px solid var(--edge);
+  cursor: grab; transition: border-color .15s;
+}
+.trim.cut .trim-sel { --edge: var(--accent-hi); }
+.trim.dragging .trim-sel { cursor: grabbing; }
+.trim-handle {
+  position: absolute; top: -3px; bottom: -3px; width: 14px; display: grid; place-items: center;
+  background: var(--edge); cursor: ew-resize; outline: none; transition: background-color .15s;
+}
+.trim-handle.start { right: 100%; border-radius: 7px 0 0 7px; }
+.trim-handle.end { left: 100%; border-radius: 0 7px 7px 0; }
+.trim-handle::after {
+  content: ""; width: 6px; height: 6px; border: solid #0d0b26; border-width: 0 0 2.5px 2.5px; transform: translateX(1px) rotate(45deg);
+}
+.trim-handle.end::after { transform: translateX(-1px) rotate(-135deg); }
+.trim-handle:focus-visible { box-shadow: 0 0 0 2px var(--canvas, #000), 0 0 0 4px var(--accent-hi); z-index: 1; }
+
+/* The frame and time under the moving handle. */
+.trim-bubble {
+  position: absolute; bottom: calc(100% + 12px); left: 0; transform: translateX(-50%); z-index: 2;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px; border-radius: 9px;
+  background: #0d0b26; border: 1px solid var(--line-accent); box-shadow: 0 8px 24px #000a;
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.trim-bubble.on { opacity: 1; }
+.trim-bubble canvas { display: block; width: 128px; height: 72px; border-radius: 6px; background: var(--track, #16143a); }
+.trim-bubble canvas[hidden] { display: none; }
+.trim-bubble span { padding: 0 6px; color: var(--text); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.trim-times { display: grid; grid-template-columns: 1fr auto 1fr; align-items: baseline; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.trim-times span:last-child { text-align: right; }
+.trim-times b { color: var(--text-soft); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  .trim-sel, .trim-handle, .trim-bubble { transition: none; }
+}

@@ -6,7 +6,7 @@
 const path = require("path");
 const crypto = require("crypto");
 const { BrowserWindow, screen, ipcMain, dialog } = require("electron");
-const { buildOptions, publicOptions } = require("./formats");
+const { buildOptions, publicOptions, storyboard } = require("./formats");
 const { parseClip } = require("./clip");
 const { readZip, zipView, chooseEntries } = require("./zip");
 const { fromApp } = require("./guard");
@@ -86,7 +86,7 @@ class Prompts {
     return this.open({
       kind: "video", url, site: siteOf(url),
       view: {
-        kind: "video", title: info.title || url, thumbnail: info.thumbnail || "", site: siteOf(url), duration: info.duration || 0,
+        kind: "video", title: info.title || url, thumbnail: info.thumbnail || "", site: siteOf(url), duration: info.duration || 0, storyboard: storyboard(info),
         options: publicOptions(options), optionId, targets,
       },
     });

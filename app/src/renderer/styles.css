@@ -288,17 +288,11 @@ body:has(.main:not([data-view="idle"])) .sky::after { opacity: 1; }
 .pick-cancel { margin-top: 12px; }
 .pick:disabled { opacity: .5; pointer-events: none; }
 .pick-trim { margin-left: auto; align-self: flex-start; }
-/* The range of a video to download, above the formats. */
-.pick-clip { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: -2px 0 12px; }
-.pick-field { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: 12.5px; }
-.pick-field input {
-  flex: 1; min-width: 0; height: 32px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line); background: #03030a8c;
-  font: inherit; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; outline: none;
-}
-.pick-field input:focus { border-color: #b4aaff55; box-shadow: 0 0 0 3px #8a7fe826; }
-.pick-note { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; padding: 0 2px; }
-.pick-note.bad { color: var(--rose-hi); }
+/* The trimmer over the video, above the formats. */
+.pick-clip { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px; }
+.pick-note { color: var(--muted); font-size: 12.5px; padding: 0 2px; }
 .pick-note:empty { display: none; }
+.pick-note.bad { color: var(--rose-hi); }
 
 /* --------------------------------------------------------------- buttons */
 

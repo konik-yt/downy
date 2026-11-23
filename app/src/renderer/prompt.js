@@ -155,37 +155,33 @@ function toggleRename() {
   }
 }
 
-// Opens the From and To boxes. Closing them goes back to the whole video.
+// Opens the trimmer over the whole video. Closing it goes back to the whole video.
 function toggleTrim() {
   const row = $("clipRow");
   row.hidden = !row.hidden;
   $("trim").setAttribute("aria-expanded", String(!row.hidden));
-  $("trim").textContent = row.hidden ? "Trim" : "Whole video";
+  $("trim").textContent = row.hidden ? "Trim" : "Cancel trim";
   if (!row.hidden) {
-    $("clipFrom").value = "0:00";
-    $("clipTo").value = single().duration ? formatTime(single().duration) : "";
-    $("clipFrom").focus();
-    $("clipFrom").select();
-    checkClip();
+    const e = single();
+    const t = trimmer({ duration: e.duration, storyboard: e.storyboard, onChange: checkClip, screen: $("screen") });
+    row.replaceChildren(t.el);
+    row.querySelector(".trim-handle")?.focus();
     return;
   }
+  row.replaceChildren();
   clipSeq++; // an answer still on its way no longer counts
   clipRun = Promise.resolve();
   clip = clipTargets = clipSizes = null;
-  $("clipNote").textContent = "";
   $("go").disabled = false;
   showError("");
   applySingle();
 }
 
 // Asks the app whether the range is usable, and for the names and sizes it gives. The app has the one parser.
-function checkClip() {
+function checkClip(range) {
   const seq = ++clipSeq;
   clipRun = (async () => {
-    const from = parseTime($("clipFrom").value);
-    const to = parseTime($("clipTo").value);
-    if (from == null || to == null) return showClip(seq, { error: "Type a time like 75, 1:15 or 1:02:05" });
-    const res = await downy.promptClip({ start: from, end: to });
+    const res = await downy.promptClip(range);
     showClip(seq, res.ok ? res.data : { error: res.error });
   })();
 }
@@ -196,7 +192,6 @@ function showClip(seq, r) {
   clip = bad ? null : r.clip;
   clipTargets = bad ? null : r.targets;
   clipSizes = bad ? null : r.sizes;
-  $("clipNote").textContent = bad ? "" : clip ? `${timeInWords(clip.end - clip.start)}. Sizes are for the clip.` : "That is the whole video.";
   $("go").disabled = bad;
   showError(bad ? r.error : "");
   applySingle();
@@ -459,8 +454,6 @@ function fit() {
   $("name").addEventListener("input", () => (nameEdited = true));
   $("rename").onclick = toggleRename;
   $("trim").onclick = toggleTrim;
-  $("clipFrom").addEventListener("input", checkClip);
-  $("clipTo").addEventListener("input", checkClip);
   $("choose").onclick = toggleFiles;
   $("change").onclick = async () => {
     const r = await downy.promptChooseFolder(dir || view.dir || view.root);

@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, Notification, nativeImage, clipboard } = require("electron");
 const tools = require("./tools");
-const { InfoCache, isYoutubeUrl, isHttpUrl, buildOptions, publicOptions } = require("./formats");
+const { InfoCache, isYoutubeUrl, isHttpUrl, buildOptions, publicOptions, storyboard } = require("./formats");
 const { Settings } = require("./settings");
 const { Manager } = require("./manager");
 const { startServer, PORT } = require("./server");
@@ -305,7 +305,7 @@ if (!app.requestSingleInstanceLock()) {
   handle("formats", async (url) => {
     if (!isYoutubeUrl(url)) throw new Error("Paste a YouTube link, such as youtube.com/watch?v=...");
     const { info } = await cache.get(url);
-    return { title: info.title, thumbnail: info.thumbnail, duration: info.duration, channel: info.channel || info.uploader, options: publicOptions(buildOptions(info)) };
+    return { title: info.title, thumbnail: info.thumbnail, duration: info.duration, channel: info.channel || info.uploader, options: publicOptions(buildOptions(info)), storyboard: storyboard(info) };
   });
   handle("download", (url, option, clip) => {
     if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");

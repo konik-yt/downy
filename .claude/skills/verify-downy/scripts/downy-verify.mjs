@@ -7,7 +7,8 @@
 //   node downy-verify.mjs doctor               read-only health check of the current run
 //   node downy-verify.mjs click <css> [--text "Button text"] [--target prompt]
 //   node downy-verify.mjs type <css> <text> [--replace] [--target prompt]   --replace presses Ctrl+A first
-//   node downy-verify.mjs key <Enter|Escape|Tab> [--target prompt]
+//   node downy-verify.mjs key <Enter|Escape|Tab|ArrowLeft|...|Shift+ArrowRight> [--target prompt]
+//   node downy-verify.mjs drag <css> <dx> [--dy n] [--steps n] [--shot name] [--target prompt]   --shot captures mid-drag
 //   node downy-verify.mjs eval <js> [--target prompt]
 //   node downy-verify.mjs wait <js> [--timeout ms] [--target prompt]
 //   node downy-verify.mjs shot <name> [--target prompt]
@@ -179,18 +180,68 @@ async function click(run, sel, kind, text) {
   });
 }
 
+// Presses the left button on the centre of the element, moves the mouse by dx and dy in steps
+// with real mouse events, and lets go, like a user dragging a handle. With mid, a screenshot named
+// mid is taken while the button is still down, to catch what shows only during a drag.
+async function drag(run, sel, kind, { dx, dy = 0, steps = 12, mid } = {}) {
+  let file = null;
+  await withPage(run, kind, async (c) => {
+    const box = await c.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(sel)});
+      if (!el) return null;
+      el.scrollIntoView({ block: "center", inline: "center" });
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, hidden: r.width === 0 || r.height === 0 || getComputedStyle(el).visibility === "hidden" };
+    })()`);
+    if (!box) throw new Error(`nothing matches ${sel}`);
+    if (box.hidden) throw new Error(`${sel} is not visible`);
+    const pause = () => new Promise((r) => setTimeout(r, 16));
+    await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x, y: box.y });
+    await c.send("Input.dispatchMouseEvent", { type: "mousePressed", x: box.x, y: box.y, button: "left", buttons: 1, clickCount: 1 });
+    let at = { x: box.x, y: box.y };
+    for (let i = 1; i <= steps; i++) {
+      at = { x: box.x + (dx * i) / steps, y: box.y + (dy * i) / steps };
+      await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at, button: "left", buttons: 1 });
+      await pause();
+    }
+    if (mid) {
+      await new Promise((r) => setTimeout(r, 300)); // storyboard frames load while the button is down
+      const dir = path.join(run.dir, "evidence");
+      const n = fs.readdirSync(dir).filter((f) => f.endsWith(".png")).length + 1;
+      file = path.join(dir, `${String(n).padStart(2, "0")}-${mid.replace(/[^\w.-]+/g, "_")}.png`);
+      const r = await c.send("Page.captureScreenshot", { format: "png" });
+      fs.writeFileSync(file, Buffer.from(r.data, "base64"));
+    }
+    await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", buttons: 0, clickCount: 1 });
+  });
+  return file;
+}
+
 const KEYS = {
   Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
   Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
   Tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 },
+  ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 },
+  ArrowUp: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38 },
+  ArrowRight: { key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39 },
+  ArrowDown: { key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 },
+  Home: { key: "Home", code: "Home", windowsVirtualKeyCode: 36 },
+  End: { key: "End", code: "End", windowsVirtualKeyCode: 35 },
+  PageUp: { key: "PageUp", code: "PageUp", windowsVirtualKeyCode: 33 },
+  PageDown: { key: "PageDown", code: "PageDown", windowsVirtualKeyCode: 34 },
 };
+const MODIFIERS = { Alt: 1, Ctrl: 2, Shift: 8 };
 
+// name is a key from KEYS, optionally after modifiers, such as Shift+ArrowRight. The key goes to
+// whatever has the focus, so focus the element first, for example by clicking it.
 async function key(run, name, kind) {
-  const k = KEYS[name];
-  if (!k) throw new Error(`unknown key ${name}. Known: ${Object.keys(KEYS).join(", ")}`);
+  const parts = name.split("+");
+  const k = KEYS[parts.pop()];
+  if (!k || !parts.every((m) => MODIFIERS[m])) throw new Error(`unknown key ${name}. Known: ${Object.keys(KEYS).join(", ")}, after ${Object.keys(MODIFIERS).join("+, ")}+`);
+  const modifiers = parts.reduce((n, m) => n | MODIFIERS[m], 0);
   await withPage(run, kind, async (c) => {
-    await c.send("Input.dispatchKeyEvent", { type: "keyDown", ...k });
-    await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: k.key, code: k.code, windowsVirtualKeyCode: k.windowsVirtualKeyCode });
+    await c.send("Input.dispatchKeyEvent", { type: "keyDown", ...k, modifiers });
+    await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: k.key, code: k.code, windowsVirtualKeyCode: k.windowsVirtualKeyCode, modifiers });
   });
 }
 
@@ -533,6 +584,17 @@ async function main() {
       });
       log(run, `type${replace ? " --replace" : ""} ${kind} ${argv[1]} ${JSON.stringify(argv[2])}`);
       return console.log(`typed into ${argv[1]}`);
+    }
+    case "drag": {
+      const run = readRun();
+      const dy = Number(flag("--dy") || 0);
+      const steps = Number(flag("--steps") || 12);
+      const mid = flag("--shot");
+      const dx = Number(argv[2]);
+      if (!argv[1] || !Number.isFinite(dx)) throw new Error("usage: drag <css> <dx> [--dy n] [--steps n] [--shot name]");
+      const file = await drag(run, argv[1], kind, { dx, dy, steps, mid: typeof mid === "string" ? mid : undefined });
+      log(run, `drag ${kind} ${argv[1]} by ${dx},${dy}${file ? ` shot ${file}` : ""}`);
+      return console.log(`dragged ${argv[1]} by ${dx},${dy}${file ? `\n${file}` : ""}`);
     }
     case "key": {
       const run = readRun();

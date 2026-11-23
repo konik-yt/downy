@@ -10,7 +10,7 @@ const state = {
   toolsMode: "first", // "first" run, "missing" at a later start, or "settings"
   tab: "downloads", // "downloads", "done" or "failed"
   folder: null, // a folder picked on the Finished tab, such as "YouTube/1080p"
-  picker: null, // { url, info, trim, from, to, clip, error, run }
+  picker: null, // { url, info, trim, clip, error, run, seq }
   rows: new Map(), // row parts by download id
   secs: new Map(), // list sections by id
   speed: 0, // smoothed total download speed in bytes per second
@@ -1454,7 +1454,7 @@ async function getFormats(url) {
       setHint(res.error, true, "alert");
       return;
     }
-    state.picker = { url, info: res.data, trim: false, from: "0:00", to: res.data.duration ? formatTime(res.data.duration) : "", clip: null, error: "", run: Promise.resolve(), seq: 0 };
+    state.picker = { url, info: res.data, trim: false, clip: null, error: "", run: Promise.resolve(), seq: 0 };
     renderPicker();
     defaultHint();
   } finally {
@@ -1551,7 +1551,7 @@ function renderPicker() {
   img.referrerPolicy = "no-referrer";
   const txt = el("div");
   txt.append(el("div", "pick-title", info.title || ""), el("div", "pick-sub", info.channel || ""));
-  const trim = el("button", "link pick-trim", state.picker.trim ? "Whole video" : "Trim");
+  const trim = el("button", "link pick-trim", state.picker.trim ? "Cancel trim" : "Trim");
   trim.type = "button";
   trim.setAttribute("aria-expanded", String(state.picker.trim));
   trim.onclick = toggleTrim;
@@ -1573,6 +1573,7 @@ function renderPicker() {
       const label = o.kind === "video" ? o.label.replace(/^MP4 file, quality /, "") : o.kind === "mp3" ? "MP3" : "M4A";
       b.append(el("b", "", label), el("span", "", [o.kind === "video" ? "MP4" : "Audio", o.sizeText].filter(Boolean).join(", ")));
       b.title = state.settings?.organize ? `${o.label}, saved to YouTube / ${o.folder}` : o.label;
+      b.dataset.id = o.id;
       b.onclick = () => startDownload(o);
       grid.append(b);
     }
@@ -1592,30 +1593,15 @@ function renderPicker() {
   p.querySelector(".pick")?.focus();
 }
 
-// The From and To boxes. The app checks the range, so there is one parser.
+// The trimmer over the video. The app checks the range, so there is one parser.
 function clipRow() {
+  const p = state.picker;
   const row = el("div", "pick-clip");
-  for (const [label, key] of [["From", "from"], ["To", "to"]]) {
-    const field = el("label", "pick-field");
-    const input = el("input");
-    input.value = state.picker[key];
-    input.inputMode = "numeric";
-    input.spellcheck = false;
-    input.setAttribute("aria-label", `${label} time`);
-    input.id = `pickClip${label}`;
-    input.oninput = () => {
-      state.picker[key] = input.value;
-      checkClip();
-    };
-    // Enter here must not read the link again, which would close the picker.
-    input.onkeydown = (e) => e.key === "Enter" && e.preventDefault();
-    field.append(el("span", "", label), input);
-    row.append(field);
-  }
-  const note = el("p", "pick-note");
+  const t = trimmer({ duration: p.info.duration || 0, storyboard: p.info.storyboard, onChange: checkClip });
+  const note = el("p", "pick-note bad");
   note.id = "pickClipNote";
   note.setAttribute("aria-live", "polite");
-  row.append(note);
+  row.append(t.el, note);
   return row;
 }
 
@@ -1627,28 +1613,17 @@ function toggleTrim() {
   p.error = "";
   p.run = Promise.resolve();
   renderPicker();
-  if (p.trim) {
-    checkClip();
-    $("pickClipFrom").focus();
-    $("pickClipFrom").select();
-  }
+  if (p.trim) $("picker").querySelector(".trim-handle")?.focus();
 }
 
-function checkClip() {
+function checkClip(range) {
   const p = state.picker;
   const seq = ++p.seq;
   p.run = (async () => {
-    const from = parseTime(p.from);
-    const to = parseTime(p.to);
-    let result;
-    if (from == null || to == null) result = { error: "Type a time like 75, 1:15 or 1:02:05" };
-    else {
-      const res = await downy.checkClip({ start: from, end: to }, p.info.duration || 0);
-      result = res.ok ? { clip: res.data } : { error: res.error };
-    }
+    const res = await downy.checkClip(range, p.info.duration || 0);
     if (state.picker !== p || seq !== p.seq) return;
-    p.clip = result.clip || null;
-    p.error = result.error || "";
+    p.clip = res.ok ? res.data : null;
+    p.error = res.ok ? "" : res.error;
     paintClip();
   })();
 }
@@ -1657,9 +1632,14 @@ function paintClip() {
   const p = state.picker;
   const note = $("pickClipNote");
   if (!note) return;
-  note.classList.toggle("bad", !!p.error);
-  note.textContent = p.error || (p.clip ? timeInWords(p.clip.end - p.clip.start) : "That is the whole video.");
-  for (const b of $("picker").querySelectorAll(".pick")) b.disabled = !!p.error;
+  note.textContent = p.error;
+  const part = p.clip && p.info.duration ? (p.clip.end - p.clip.start) / p.info.duration : 1;
+  for (const b of $("picker").querySelectorAll(".pick")) {
+    b.disabled = !!p.error;
+    // The size of the part, estimated like the confirm window does.
+    const o = p.info.options.find((x) => x.id === b.dataset.id);
+    b.lastChild.textContent = [o.kind === "video" ? "MP4" : "Audio", o.size ? size(Math.round(o.size * part)) : ""].filter(Boolean).join(", ");
+  }
 }
 
 function closePicker() {

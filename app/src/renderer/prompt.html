@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="../../node_modules/@fontsource-variable/inter/index.css">
 <link rel="stylesheet" href="prompt.css">
 <link rel="stylesheet" href="filetree.css">
+<link rel="stylesheet" href="trimmer.css">
 </head>
 <body>
 <form class="card" id="card" autocomplete="off">
@@ -14,6 +15,7 @@
   <section class="one" id="one">
     <div class="pic" id="pic">
       <img id="thumb" alt="">
+      <canvas class="screen" id="screen" aria-hidden="true"></canvas>
       <span class="pic-tile" id="tile"><span data-icon="file" id="tileIcon"></span><b id="tileText"></b></span>
       <span class="dur" id="dur" hidden></span>
       <button type="button" class="x on-pic" id="close" aria-label="Cancel" title="Cancel" data-icon="x"></button>
@@ -27,11 +29,7 @@
         <span class="ext" id="ext"></span>
       </span>
     </label>
-    <div class="clip-row" id="clipRow" hidden>
-      <label class="clip-field"><span>From</span><span class="box"><input id="clipFrom" inputmode="numeric" spellcheck="false" aria-describedby="clipNote"></span></label>
-      <label class="clip-field"><span>To</span><span class="box"><input id="clipTo" inputmode="numeric" spellcheck="false" aria-describedby="clipNote"></span></label>
-      <p class="clip-note" id="clipNote" aria-live="polite"></p>
-    </div>
+    <div class="clip-row" id="clipRow" hidden></div>
     <div id="zipBox" hidden></div>
     <div class="tiles" id="tiles" role="radiogroup" aria-label="Format" hidden></div>
   </section>
@@ -72,6 +70,7 @@
 <script src="times.js"></script>
 <script src="names.js"></script>
 <script src="filetree.js"></script>
+<script src="trimmer.js"></script>
 <script src="prompt.js"></script>
 </body>
 </html>
