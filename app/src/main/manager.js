@@ -219,6 +219,8 @@ class Manager extends EventEmitter {
       created: j.created, finished: j.finished, order: j.order, mode: j.mode, phase: j.phase || "",
       stream: current ? { role: current.role, index: shown.indexOf(current) + 1, count: shown.length } : null,
       clip: j.clip || null,
+      // yt-dlp cuts a clip out with ffmpeg and prints one progress line at the very end, so the bar has nothing to show until then.
+      indeterminate: j.mode === "ytdlp" && !!j.clip && j.status === "downloading" && !j.downloaded,
       segments, connections: segments.filter((s) => s.live).length || (rt?.proc ? this.settings.get().connections : 0),
       postProgress: j.postProgress || 0, resumable: j.resumable,
       batch: j.batch || null, batchIndex: j.batchIndex || 0, batchAt: j.batchAt || 0, batchMode: j.batch ? j.batchMode || "one" : null,
@@ -963,6 +965,7 @@ class Manager extends EventEmitter {
       ...tools.jsRuntimeArgs(),
     ];
     if (j.kind === "video") args.push("--merge-output-format", "mp4");
+    if (j.clip) args.push("--download-sections", `*${j.clip.start}-${j.clip.end}`);
     if (j.kind === "mp3") args.push("-x", "--audio-format", "mp3", "--audio-quality", "0");
     if (j.kind === "audio" && j.streams?.[0]?.ext !== "m4a") args.push("-x", "--audio-format", "m4a");
     // The info file is the value of --load-info-json. A page URL goes last, after "--",

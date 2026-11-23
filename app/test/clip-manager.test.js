@@ -191,3 +191,13 @@ test("draftVideo checks the clip against the length of the video", async (t) => 
   await assert.rejects(draft({ start: 20, end: 10 }), /end must come after/);
   await assert.rejects(draft({ from: 1 }), /as times/);
 });
+
+test("a clip that yt-dlp cuts shows no progress until yt-dlp reports, so the list can say so", (t) => {
+  const { m } = setup(t, "http://127.0.0.1:9");
+  const job = { id: "y", mode: "ytdlp", kind: "video", status: "downloading", downloaded: 0, expected: 1000, streams: [], clip: { start: 5, end: 25 } };
+  assert.equal(m.public(job).indeterminate, true);
+  assert.equal(m.public({ ...job, downloaded: 400 }).indeterminate, false);
+  assert.equal(m.public({ ...job, status: "paused" }).indeterminate, false);
+  assert.equal(m.public({ ...job, clip: undefined }).indeterminate, false);
+  assert.equal(m.public({ ...job, mode: "segmented" }).indeterminate, false);
+});
