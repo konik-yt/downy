@@ -286,6 +286,19 @@ body:has(.main:not([data-view="idle"])) .sky::after { opacity: 1; }
 .pick b { font-weight: 600; font-size: 14px; }
 .pick span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .pick-cancel { margin-top: 12px; }
+.pick:disabled { opacity: .5; pointer-events: none; }
+.pick-trim { margin-left: auto; align-self: flex-start; }
+/* The range of a video to download, above the formats. */
+.pick-clip { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: -2px 0 12px; }
+.pick-field { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: 12.5px; }
+.pick-field input {
+  flex: 1; min-width: 0; height: 32px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line); background: #03030a8c;
+  font: inherit; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; outline: none;
+}
+.pick-field input:focus { border-color: #b4aaff55; box-shadow: 0 0 0 3px #8a7fe826; }
+.pick-note { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; padding: 0 2px; }
+.pick-note.bad { color: var(--rose-hi); }
+.pick-note:empty { display: none; }
 
 /* --------------------------------------------------------------- buttons */
 
@@ -804,6 +817,10 @@ body:has(.main:not([data-view="idle"])) .sky::after { opacity: 1; }
 .drop-on .drop-hint { transform: translate(-50%, -50%) scale(1); }
 .drop-hint .ic { width: 18px; height: 18px; color: var(--accent-hi); animation: nudge 1.1s ease-in-out infinite; }
 @keyframes nudge { 50% { transform: translateY(3px); } }
+
+/* A clip that yt-dlp cuts reports nothing until it is done, so a block slides along the bar instead. */
+.segbar.wait .seg > b { width: 30% !important; transition: none; animation: wait 1.4s ease-in-out infinite alternate; }
+@keyframes wait { to { transform: translateX(233%); } }
 
 /* While a file is joined or converted, a shine runs along the filled part of its bar. */
 .segbar.post .seg > b { position: relative; overflow: hidden; }

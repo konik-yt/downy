@@ -10,7 +10,7 @@ const state = {
   toolsMode: "first", // "first" run, "missing" at a later start, or "settings"
   tab: "downloads", // "downloads", "done" or "failed"
   folder: null, // a folder picked on the Finished tab, such as "YouTube/1080p"
-  picker: null, // { url, info }
+  picker: null, // { url, info, trim, from, to, clip, error, run }
   rows: new Map(), // row parts by download id
   secs: new Map(), // list sections by id
   speed: 0, // smoothed total download speed in bytes per second
@@ -987,6 +987,7 @@ function statusLine(d) {
 // The details a running row leaves out, for its tooltip.
 function rowDetails(d) {
   const parts = [statusLine(d)[1]];
+  if (d.clip) parts.push(`Clip ${formatTime(d.clip.start)} to ${formatTime(d.clip.end)}`);
   if (d.status === "downloading") {
     if (d.connections) parts.push(`${d.connections} ${d.connections === 1 ? "connection" : "connections"}`);
     if (d.stream && d.stream.count > 1) parts.push(`${d.stream.role === "audio" ? "Audio" : "Video"}, part ${d.stream.index} of ${d.stream.count}`);
@@ -1031,7 +1032,7 @@ function updateRow(r, d) {
   }
   const rate = [];
   if (d.status === "downloading") {
-    rate.push(el("b", "", d.speed ? `${size(d.speed)}/s` : "Connecting"));
+    rate.push(el("b", "", d.speed ? `${size(d.speed)}/s` : d.indeterminate ? "Fetching the clip" : "Connecting"));
     if (d.speed) rate.push(el("span", "", eta(d.eta)));
   } else rate.push(el("span", "", statusLine(d)[1]));
   r.rate.replaceChildren(...rate);
@@ -1169,6 +1170,7 @@ function renderBar(r, d) {
   const post = d.status === "merging" || d.status === "converting";
   bar.classList.toggle("post", post);
   bar.classList.toggle("paused", d.status === "paused" || d.status === "queued");
+  bar.classList.toggle("wait", !!d.indeterminate);
   const segs = post ? [{ s: 0, e: 1, p: d.postProgress || 0, live: true }]
     : d.segments.length ? d.segments : [{ s: 0, e: 1, p: d.progress, live: false }];
   if (bar.children.length !== segs.length) {
@@ -1451,7 +1453,7 @@ async function getFormats(url) {
       setHint(res.error, true, "alert");
       return;
     }
-    state.picker = { url, info: res.data };
+    state.picker = { url, info: res.data, trim: false, from: "0:00", to: res.data.duration ? formatTime(res.data.duration) : "", clip: null, error: "", run: Promise.resolve(), seq: 0 };
     renderPicker();
     defaultHint();
   } finally {
@@ -1481,13 +1483,18 @@ function renderPicker() {
   img.referrerPolicy = "no-referrer";
   const txt = el("div");
   txt.append(el("div", "pick-title", info.title || ""), el("div", "pick-sub", info.channel || ""));
-  head.append(img, txt);
+  const trim = el("button", "link pick-trim", state.picker.trim ? "Whole video" : "Trim");
+  trim.type = "button";
+  trim.setAttribute("aria-expanded", String(state.picker.trim));
+  trim.onclick = toggleTrim;
+  head.append(img, txt, trim);
 
   const groups = [
     ["Video", info.options.filter((o) => o.kind === "video")],
     ["Audio only", info.options.filter((o) => o.kind !== "video")],
   ];
   const parts = [head];
+  if (state.picker.trim) parts.push(clipRow());
   for (const [name, opts] of groups) {
     if (!opts.length) continue;
     parts.push(el("div", "pick-group", name));
@@ -1510,7 +1517,81 @@ function renderPicker() {
   parts.push(cancel);
   p.replaceChildren(...parts);
   p.hidden = false;
+  if (state.picker.trim) {
+    paintClip();
+    return;
+  }
   p.querySelector(".pick")?.focus();
+}
+
+// The From and To boxes. The app checks the range, so there is one parser.
+function clipRow() {
+  const row = el("div", "pick-clip");
+  for (const [label, key] of [["From", "from"], ["To", "to"]]) {
+    const field = el("label", "pick-field");
+    const input = el("input");
+    input.value = state.picker[key];
+    input.inputMode = "numeric";
+    input.spellcheck = false;
+    input.setAttribute("aria-label", `${label} time`);
+    input.id = `pickClip${label}`;
+    input.oninput = () => {
+      state.picker[key] = input.value;
+      checkClip();
+    };
+    // Enter here must not read the link again, which would close the picker.
+    input.onkeydown = (e) => e.key === "Enter" && e.preventDefault();
+    field.append(el("span", "", label), input);
+    row.append(field);
+  }
+  const note = el("p", "pick-note");
+  note.id = "pickClipNote";
+  note.setAttribute("aria-live", "polite");
+  row.append(note);
+  return row;
+}
+
+function toggleTrim() {
+  const p = state.picker;
+  p.trim = !p.trim;
+  p.seq++;
+  p.clip = null;
+  p.error = "";
+  p.run = Promise.resolve();
+  renderPicker();
+  if (p.trim) {
+    checkClip();
+    $("pickClipFrom").focus();
+    $("pickClipFrom").select();
+  }
+}
+
+function checkClip() {
+  const p = state.picker;
+  const seq = ++p.seq;
+  p.run = (async () => {
+    const from = parseTime(p.from);
+    const to = parseTime(p.to);
+    let result;
+    if (from == null || to == null) result = { error: "Type a time like 75, 1:15 or 1:02:05" };
+    else {
+      const res = await downy.checkClip({ start: from, end: to }, p.info.duration || 0);
+      result = res.ok ? { clip: res.data } : { error: res.error };
+    }
+    if (state.picker !== p || seq !== p.seq) return;
+    p.clip = result.clip || null;
+    p.error = result.error || "";
+    paintClip();
+  })();
+}
+
+function paintClip() {
+  const p = state.picker;
+  const note = $("pickClipNote");
+  if (!note) return;
+  note.classList.toggle("bad", !!p.error);
+  note.textContent = p.error || (p.clip ? timeInWords(p.clip.end - p.clip.start) : "That is the whole video.");
+  for (const b of $("picker").querySelectorAll(".pick")) b.disabled = !!p.error;
 }
 
 function closePicker() {
@@ -1519,11 +1600,14 @@ function closePicker() {
 }
 
 async function startDownload(option) {
-  const { url } = state.picker;
+  const p = state.picker;
+  await p.run;
+  if (state.picker !== p || p.error) return;
+  const { url, clip } = p;
   closePicker();
   $("url").value = "";
   try {
-    const d = await call(downy.download, url, option.id);
+    const d = await call(downy.download, url, option.id, clip);
     state.tab = "downloads";
     state.folder = null;
     flash(d.id);
