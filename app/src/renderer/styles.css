@@ -286,6 +286,13 @@ body:has(.main:not([data-view="idle"])) .sky::after { opacity: 1; }
 .pick b { font-weight: 600; font-size: 14px; }
 .pick span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .pick-cancel { margin-top: 12px; }
+.pick:disabled { opacity: .5; pointer-events: none; }
+.pick-trim { margin-left: auto; align-self: flex-start; }
+/* The trimmer over the video, above the formats. */
+.pick-clip { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px; }
+.pick-note { color: var(--muted); font-size: 12.5px; padding: 0 2px; }
+.pick-note:empty { display: none; }
+.pick-note.bad { color: var(--rose-hi); }
 
 /* --------------------------------------------------------------- buttons */
 
@@ -804,6 +811,10 @@ body:has(.main:not([data-view="idle"])) .sky::after { opacity: 1; }
 .drop-on .drop-hint { transform: translate(-50%, -50%) scale(1); }
 .drop-hint .ic { width: 18px; height: 18px; color: var(--accent-hi); animation: nudge 1.1s ease-in-out infinite; }
 @keyframes nudge { 50% { transform: translateY(3px); } }
+
+/* A clip that yt-dlp cuts reports nothing until it is done, so a block slides along the bar instead. */
+.segbar.wait .seg > b { width: 30% !important; transition: none; animation: wait 1.4s ease-in-out infinite alternate; }
+@keyframes wait { to { transform: translateX(233%); } }
 
 /* While a file is joined or converted, a shine runs along the filled part of its bar. */
 .segbar.post .seg > b { position: relative; overflow: hidden; }

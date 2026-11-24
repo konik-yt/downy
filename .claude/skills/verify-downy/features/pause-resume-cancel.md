@@ -1,6 +1,6 @@
 # Pause, resume and cancel
 
-While a file downloads, its row in the Downloads tab has Pause and Cancel buttons. Pause stops the connections and keeps what was downloaded. Resume puts the file back in line, and it continues from the saved offset of each connection instead of from zero. Cancel stops it for good and deletes the part file. Quitting Downy with a download running saves it as paused.
+While a file downloads, its row in the Downloads tab has Pause and Cancel buttons. Pause stops the connections and keeps what was downloaded. Resume puts the file back in line, and it continues from the saved offset of each connection instead of from zero. Cancel stops it for good and deletes the part file. Quitting Downy with a download running saves it as paused. A server that ignores Range can't resume, so its paused row reads "Paused. This server cannot resume, so it starts over" and Resume starts from zero.
 
 ## Sub-features
 
@@ -9,13 +9,14 @@ While a file downloads, its row in the Downloads tab has Pause and Cancel button
 - `cancel-row` cancels a running or paused download and deletes its part file.
 - `pause-quit` saves a running download as paused when Downy quits.
 - `pause-all` pauses or resumes everything (from the totals button `#statusAct`, and the tray menu).
+- `pause-queued` pauses a row that is still waiting in line, so it doesn't start.
 
 ## How to get to it (user POV)
 
 - Downloads tab, hover the running row, click the pause icon (Pause), then the play icon (Resume).
 - The same row's x icon (Cancel download).
 - The button at the top right of the totals while files run (`#statusAct`).
-- Close the window with "Keep running in the tray" off, or Quit Downy from the tray.
+- Close the window with "Keep running in the tray when closed" off, or Quit Downy from the tray.
 
 ## Driving it with downy-verify
 
@@ -37,3 +38,6 @@ Preconditions:
 - Resume puts the file at the end of the line, so with other files waiting it may show queued before downloading.
 - The pause-quit check must read `downloads.json` before cleanup, since cleanup deletes `data/`.
 - After `[data-win=close]`, page commands fail with "the window closed". That is expected; only `doctor`, file reads and `cleanup` work then.
+- Part files are named `<id>.<role>.<ext>`. A file link has `<id>.file.bin`. A clip of a video has `<id>.video.init.mp4` and `<id>.video.data.mp4`, and the same for audio. A ZIP pick has one part per run of picked files: `<id>.zip1.bin`, `<id>.zip2.bin`.
+- `norange.bin` finishes before you can click. Use `slow-norange.bin` to pause a download that can't resume: wait for `document.querySelector('[data-id="<id>"][data-status=paused]')?.textContent`, which reads "Paused. This server cannot resume, so it starts over", and after Resume its `serverlog` shows a new request with no Range answered 200 with all 8388608 bytes.
+- `downy.state()` reports paused a moment before the row re-renders. Wait on the row's `data-status` when you read its text.

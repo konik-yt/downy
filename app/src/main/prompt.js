@@ -6,7 +6,9 @@
 const path = require("path");
 const crypto = require("crypto");
 const { BrowserWindow, screen, ipcMain, dialog } = require("electron");
-const { buildOptions, publicOptions } = require("./formats");
+const { buildOptions, publicOptions, storyboard } = require("./formats");
+const { parseClip } = require("./clip");
+const { readZip, zipView, chooseEntries } = require("./zip");
 const { fromApp } = require("./guard");
 const { testVar } = require("./dev");
 
@@ -59,6 +61,7 @@ class Prompts {
       return this.view(box);
     });
     handle("prompt:remove", (box, id) => this.leaveOut(box, String(id)));
+    handle("prompt:clip", (box, raw) => this.clipView(box, raw));
     handle("prompt:submit", (box, choice) => this.submit(box, choice && typeof choice === "object" ? choice : {}));
     handle("prompt:cancel", (box) => box.win.close());
     ipcMain.on("prompt:size", (e, height) => {
@@ -83,20 +86,38 @@ class Prompts {
     return this.open({
       kind: "video", url, site: siteOf(url),
       view: {
-        kind: "video", title: info.title || url, thumbnail: info.thumbnail || "", site: siteOf(url), duration: info.duration || 0,
+        kind: "video", title: info.title || url, thumbnail: info.thumbnail || "", site: siteOf(url), duration: info.duration || 0, storyboard: storyboard(info),
         options: publicOptions(options), optionId, targets,
       },
     });
   }
 
+  // What a time range changes in the window of one video: the file name and the size of each format.
+  // Throws the reason when the range is not usable.
+  async clipView(box, raw) {
+    const item = box.entries[0];
+    if (box.entries.length !== 1 || box.collecting || item.kind !== "video") throw new Error("Only a single video can be trimmed");
+    const { info } = await this.cache.get(item.url);
+    const clip = parseClip(raw, info.duration || 0);
+    const targets = {};
+    const sizes = {};
+    for (const o of item.view.options) {
+      const draft = await this.manager.draftVideo(item.url, o.id, clip);
+      targets[o.id] = this.manager.target(draft);
+      sizes[o.id] = draft.expected;
+    }
+    return { clip, targets, sizes };
+  }
+
   // A Chrome download. The link is checked first, so a link Downy can't use stays in Chrome.
   async openFile(spec) {
     const draft = await this.manager.draftFile(spec);
+    const zip = await readZip(draft, spec.mime);
     return this.open({
-      kind: "file", url: spec.url, draft, site: siteOf(spec.url),
+      kind: "file", url: spec.url, draft, zip, site: siteOf(spec.url),
       view: {
         kind: "file", title: draft.filename, site: siteOf(spec.url), size: draft.expected || 0, ext: draft.ext || "",
-        optionId: "file", targets: { file: this.manager.target(draft) },
+        optionId: "file", targets: { file: this.manager.target(draft) }, zip: zip && zipView(zip),
       },
     });
   }
@@ -159,6 +180,7 @@ class Prompts {
   forget(item) {
     if (item.state === "open") item.state = "cancelled";
     item.draft = null;
+    item.zip = null;
     setTimeout(() => this.items.delete(item.id), KEEP);
   }
 
@@ -191,7 +213,8 @@ class Prompts {
     return this.view(box);
   }
 
-  // choice for one download: { optionId, dir, name }.
+  // choice for one download: { optionId, dir, name, clip, files }, where files lists the entries picked
+  // from a ZIP, or is left out for the whole file.
   // For several, or a batch: { order, formats, mode, dir }, where order lists request ids
   // top to bottom and formats maps a video's request id to the format picked on its row.
   async submit(box, choice) {
@@ -202,8 +225,8 @@ class Prompts {
       if (box.entries.length === 1 && !box.collecting) {
         const item = box.entries[0];
         const d = item.kind === "video"
-          ? await this.manager.add(item.url, choice.optionId || item.view.optionId, custom)
-          : this.manager.commit(item.draft, custom);
+          ? await this.manager.add(item.url, choice.optionId || item.view.optionId, custom, choice.clip)
+          : this.manager.commit(item.zip ? chooseEntries(item.draft, item.zip, choice.files) : item.draft, custom);
         this.started(item, d);
         box.win?.close();
         this.onStart(d);

@@ -10,7 +10,7 @@ const state = {
   toolsMode: "first", // "first" run, "missing" at a later start, or "settings"
   tab: "downloads", // "downloads", "done" or "failed"
   folder: null, // a folder picked on the Finished tab, such as "YouTube/1080p"
-  picker: null, // { url, info }
+  picker: null, // { url, info, trim, clip, error, run, seq }
   rows: new Map(), // row parts by download id
   secs: new Map(), // list sections by id
   speed: 0, // smoothed total download speed in bytes per second
@@ -987,9 +987,10 @@ function statusLine(d) {
 // The details a running row leaves out, for its tooltip.
 function rowDetails(d) {
   const parts = [statusLine(d)[1]];
+  if (d.clip) parts.push(`Clip ${formatTime(d.clip.start)} to ${formatTime(d.clip.end)}`);
   if (d.status === "downloading") {
     if (d.connections) parts.push(`${d.connections} ${d.connections === 1 ? "connection" : "connections"}`);
-    if (d.stream && d.stream.count > 1) parts.push(`${d.stream.role === "audio" ? "Audio" : "Video"}, part ${d.stream.index} of ${d.stream.count}`);
+    if (d.stream && d.stream.count > 1) parts.push(`${d.stream.role === "audio" ? "Audio" : d.stream.role.startsWith("zip") ? "Files" : "Video"}, part ${d.stream.index} of ${d.stream.count}`);
     parts.push(`${Math.floor(d.progress * 100)}%`);
   }
   if (d.status === "paused" && !(d.kind === "file" && d.resumable === false)) parts.push("Resumes where it stopped");
@@ -1031,7 +1032,7 @@ function updateRow(r, d) {
   }
   const rate = [];
   if (d.status === "downloading") {
-    rate.push(el("b", "", d.speed ? `${size(d.speed)}/s` : "Connecting"));
+    rate.push(el("b", "", d.speed ? `${size(d.speed)}/s` : d.indeterminate ? "Fetching the clip" : "Connecting"));
     if (d.speed) rate.push(el("span", "", eta(d.eta)));
   } else rate.push(el("span", "", statusLine(d)[1]));
   r.rate.replaceChildren(...rate);
@@ -1169,6 +1170,7 @@ function renderBar(r, d) {
   const post = d.status === "merging" || d.status === "converting";
   bar.classList.toggle("post", post);
   bar.classList.toggle("paused", d.status === "paused" || d.status === "queued");
+  bar.classList.toggle("wait", !!d.indeterminate);
   const segs = post ? [{ s: 0, e: 1, p: d.postProgress || 0, live: true }]
     : d.segments.length ? d.segments : [{ s: 0, e: 1, p: d.progress, live: false }];
   if (bar.children.length !== segs.length) {
@@ -1422,6 +1424,7 @@ async function addFile(url) {
   try {
     const res = await downy.addFile(url);
     if (!res.ok) return setHint(res.error, true, "alert");
+    if (res.data.zip) return openZip(url, res.data.zip);
     $("url").value = "";
     defaultHint();
     state.tab = "downloads";
@@ -1451,7 +1454,7 @@ async function getFormats(url) {
       setHint(res.error, true, "alert");
       return;
     }
-    state.picker = { url, info: res.data };
+    state.picker = { url, info: res.data, trim: false, clip: null, error: "", run: Promise.resolve(), seq: 0 };
     renderPicker();
     defaultHint();
   } finally {
@@ -1466,6 +1469,72 @@ async function getFormats(url) {
   }
 }
 
+// A ZIP on a server that sends parts of files: the picker lists its files, so only the
+// ones picked are downloaded. Reading the list needs the main process to probe the link.
+const isZipLink = (url) => {
+  try {
+    return /\.zip$/i.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+};
+
+let zipRequest = 0;
+
+async function checkZip(url) {
+  const req = ++zipRequest;
+  setHint("Reading the files in this ZIP", false, "loader");
+  const res = await downy.checkFile(url);
+  if (req !== zipRequest || $("url").value.trim() !== url) return;
+  if (res.ok && res.data) openZip(url, res.data);
+  else if (res.ok) setHint("Press Enter to download this file into Downloads", false, "arrowDown");
+  else setHint(res.error, true, "alert");
+}
+
+function openZip(url, zip) {
+  state.picker = { url, zip };
+  renderPicker();
+  defaultHint();
+}
+
+function renderZip(p) {
+  const { url, zip } = state.picker;
+  const head = el("div", "pick-head");
+  const txt = el("div");
+  txt.append(el("div", "pick-title", zip.title), el("div", "pick-sub", `${files(zip.files.length)}, ${size(zip.size)}`));
+  head.append(el("span", "ft-tile", "ZIP"), txt);
+  const some = el("button", "btn primary");
+  const whole = el("button", "btn", "Download whole archive");
+  const cancel = el("button", "btn ghost", "Cancel");
+  for (const b of [some, whole, cancel]) b.type = "button";
+  let tree = null;
+  const sync = () => {
+    const n = tree.picked().length;
+    some.textContent = n ? `Download ${files(n)}` : "Pick files to download";
+    some.disabled = !n;
+  };
+  tree = fileTree(zip.files, { size, onChange: sync });
+  const start = async (picked) => {
+    closePicker();
+    $("url").value = "";
+    try {
+      const d = await call(downy.addFile, url, picked);
+      state.tab = "downloads";
+      state.folder = null;
+      flash(d.id);
+    } catch {}
+  };
+  some.onclick = () => start(tree.all() ? null : tree.picked());
+  whole.onclick = () => start(null);
+  cancel.onclick = closePicker;
+  const actions = el("div", "pick-actions");
+  actions.append(some, whole, cancel);
+  p.replaceChildren(head, tree.el, actions);
+  p.hidden = false;
+  sync();
+  some.focus();
+}
+
 function renderPicker() {
   const p = $("picker");
   if (!state.picker) {
@@ -1473,6 +1542,7 @@ function renderPicker() {
     p.replaceChildren();
     return;
   }
+  if (state.picker.zip) return renderZip(p);
   const { info } = state.picker;
   const head = el("div", "pick-head");
   const img = el("img");
@@ -1481,13 +1551,18 @@ function renderPicker() {
   img.referrerPolicy = "no-referrer";
   const txt = el("div");
   txt.append(el("div", "pick-title", info.title || ""), el("div", "pick-sub", info.channel || ""));
-  head.append(img, txt);
+  const trim = el("button", "link pick-trim", state.picker.trim ? "Cancel trim" : "Trim");
+  trim.type = "button";
+  trim.setAttribute("aria-expanded", String(state.picker.trim));
+  trim.onclick = toggleTrim;
+  head.append(img, txt, trim);
 
   const groups = [
     ["Video", info.options.filter((o) => o.kind === "video")],
     ["Audio only", info.options.filter((o) => o.kind !== "video")],
   ];
   const parts = [head];
+  if (state.picker.trim) parts.push(clipRow());
   for (const [name, opts] of groups) {
     if (!opts.length) continue;
     parts.push(el("div", "pick-group", name));
@@ -1498,6 +1573,7 @@ function renderPicker() {
       const label = o.kind === "video" ? o.label.replace(/^MP4 file, quality /, "") : o.kind === "mp3" ? "MP3" : "M4A";
       b.append(el("b", "", label), el("span", "", [o.kind === "video" ? "MP4" : "Audio", o.sizeText].filter(Boolean).join(", ")));
       b.title = state.settings?.organize ? `${o.label}, saved to YouTube / ${o.folder}` : o.label;
+      b.dataset.id = o.id;
       b.onclick = () => startDownload(o);
       grid.append(b);
     }
@@ -1510,7 +1586,60 @@ function renderPicker() {
   parts.push(cancel);
   p.replaceChildren(...parts);
   p.hidden = false;
+  if (state.picker.trim) {
+    paintClip();
+    return;
+  }
   p.querySelector(".pick")?.focus();
+}
+
+// The trimmer over the video. The app checks the range, so there is one parser.
+function clipRow() {
+  const p = state.picker;
+  const row = el("div", "pick-clip");
+  const t = trimmer({ duration: p.info.duration || 0, storyboard: p.info.storyboard, onChange: checkClip });
+  const note = el("p", "pick-note bad");
+  note.id = "pickClipNote";
+  note.setAttribute("aria-live", "polite");
+  row.append(t.el, note);
+  return row;
+}
+
+function toggleTrim() {
+  const p = state.picker;
+  p.trim = !p.trim;
+  p.seq++;
+  p.clip = null;
+  p.error = "";
+  p.run = Promise.resolve();
+  renderPicker();
+  if (p.trim) $("picker").querySelector(".trim-handle")?.focus();
+}
+
+function checkClip(range) {
+  const p = state.picker;
+  const seq = ++p.seq;
+  p.run = (async () => {
+    const res = await downy.checkClip(range, p.info.duration || 0);
+    if (state.picker !== p || seq !== p.seq) return;
+    p.clip = res.ok ? res.data : null;
+    p.error = res.ok ? "" : res.error;
+    paintClip();
+  })();
+}
+
+function paintClip() {
+  const p = state.picker;
+  const note = $("pickClipNote");
+  if (!note) return;
+  note.textContent = p.error;
+  const part = p.clip && p.info.duration ? (p.clip.end - p.clip.start) / p.info.duration : 1;
+  for (const b of $("picker").querySelectorAll(".pick")) {
+    b.disabled = !!p.error;
+    // The size of the part, estimated like the confirm window does.
+    const o = p.info.options.find((x) => x.id === b.dataset.id);
+    b.lastChild.textContent = [o.kind === "video" ? "MP4" : "Audio", o.size ? size(Math.round(o.size * part)) : ""].filter(Boolean).join(", ");
+  }
 }
 
 function closePicker() {
@@ -1519,11 +1648,14 @@ function closePicker() {
 }
 
 async function startDownload(option) {
-  const { url } = state.picker;
+  const p = state.picker;
+  await p.run;
+  if (state.picker !== p || p.error) return;
+  const { url, clip } = p;
   closePicker();
   $("url").value = "";
   try {
-    const d = await call(downy.download, url, option.id);
+    const d = await call(downy.download, url, option.id, clip);
     state.tab = "downloads";
     state.folder = null;
     flash(d.id);
@@ -1825,6 +1957,7 @@ function wire() {
   const takeLink = (text) => {
     $("url").value = text;
     if (isYoutube(text)) getFormats(text);
+    else if (isZipLink(text)) checkZip(text);
     else {
       $("url").focus();
       setHint("Press Enter to download this file into Downloads", false, "arrowDown");

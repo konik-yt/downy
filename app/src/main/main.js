@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, Notification, nativeImage, clipboard } = require("electron");
 const tools = require("./tools");
-const { InfoCache, isYoutubeUrl, isHttpUrl, buildOptions, publicOptions } = require("./formats");
+const { InfoCache, isYoutubeUrl, isHttpUrl, buildOptions, publicOptions, storyboard } = require("./formats");
 const { Settings } = require("./settings");
 const { Manager } = require("./manager");
 const { startServer, PORT } = require("./server");
@@ -10,6 +10,8 @@ const { ExtensionCopy, openChrome } = require("./extension");
 const { Updater } = require("./updater");
 const { Installer } = require("./installer");
 const { Prompts } = require("./prompt");
+const { parseClip } = require("./clip");
+const { readZip, zipView, chooseEntries } = require("./zip");
 const { fromApp, lockDown } = require("./guard");
 const { testVar } = require("./dev");
 
@@ -303,16 +305,37 @@ if (!app.requestSingleInstanceLock()) {
   handle("formats", async (url) => {
     if (!isYoutubeUrl(url)) throw new Error("Paste a YouTube link, such as youtube.com/watch?v=...");
     const { info } = await cache.get(url);
-    return { title: info.title, thumbnail: info.thumbnail, duration: info.duration, channel: info.channel || info.uploader, options: publicOptions(buildOptions(info)) };
+    return { title: info.title, thumbnail: info.thumbnail, duration: info.duration, channel: info.channel || info.uploader, options: publicOptions(buildOptions(info)), storyboard: storyboard(info) };
   });
-  handle("download", (url, option) => {
+  handle("download", (url, option, clip) => {
     if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");
     if (typeof option !== "string") throw new Error("Pick a format first");
-    return manager.add(url, option);
+    return manager.add(url, option, {}, clip);
   });
-  handle("add-file", (url) => {
+  // Says whether a time range can be used for a video that is duration seconds long.
+  handle("clip:check", (raw, duration) => parseClip(raw, Number(duration) || 0));
+  // The composer's last file link, probed once: a pasted ZIP link shows its files, and Enter
+  // on any link the composer already checked starts that draft without a second probe.
+  let checked = null; // { url, draft, zip, at }
+  async function checkLink(url) {
     if (typeof url !== "string") throw new Error("That is not a valid link"); // draftFile checks the rest
-    return manager.addFile({ url });
+    if (checked?.url !== url || Date.now() - checked.at > 5 * 60 * 1000) {
+      const draft = await manager.draftFile({ url });
+      checked = { url, draft, zip: await readZip(draft), at: Date.now() };
+    }
+    return checked;
+  }
+  const zipOffer = ({ draft, zip }) => ({ title: draft.filename, size: draft.expected, files: zipView(zip) });
+  handle("file:check", async (url) => {
+    const c = await checkLink(url);
+    return c.zip ? zipOffer(c) : null;
+  });
+  // files: undefined asks for the file list of a ZIP, null takes the whole file, or entry indices.
+  handle("add-file", async (url, files) => {
+    const c = await checkLink(url);
+    if (c.zip && files === undefined) return { zip: zipOffer(c) };
+    checked = null;
+    return manager.commit(c.zip ? chooseEntries(c.draft, c.zip, files) : c.draft);
   });
   handle("pause", (id) => manager.pause(id));
   handle("resume", (id) => manager.resume(id));

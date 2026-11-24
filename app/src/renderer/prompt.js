@@ -14,6 +14,11 @@ const formats = {}; // request id -> the format picked on a video's row
 const seen = new Set(); // rows already shown, so only new arrivals light up
 let newest = null; // the request that arrived last while the window was open
 let drag = null;
+let clip = null; // the time range of a single video, once the app has accepted it
+let clipTargets = null; // where the clip would be saved and what it would be called, per format
+let clipSizes = null; // the estimated size of the clip, per format
+let clipRun = Promise.resolve(); // the latest check of the range
+let clipSeq = 0;
 
 function size(n) {
   if (!n) return "";
@@ -37,15 +42,6 @@ function el(tag, cls, text) {
 function splitExt(name) {
   const m = /^(.*?)(\.[a-z0-9]{1,8})?$/i.exec(name);
   return [m[1], m[2] || ""];
-}
-
-// 1458 -> "24:18", 3725 -> "1:02:05"
-function clock(s) {
-  s = Math.round(s);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = String(s % 60).padStart(2, "0");
-  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
 // Keeps the start and the end of a long name, where files in a batch differ: "Detroit_Become…part01.rar".
@@ -75,7 +71,7 @@ const tileName = (o) => (o.kind !== "video" ? o.folder || o.kind.toUpperCase() :
 
 function applySingle() {
   const e = single();
-  const t = e.targets[optionId];
+  const t = (clipTargets || e.targets)[optionId];
   if (!dirEdited) dir = t.dir;
   if (e.kind === "file") {
     // Files keep their extension in the box, so it can be changed too.
@@ -87,7 +83,10 @@ function applySingle() {
     $("ext").textContent = ext;
   }
   $("sub").textContent = [e.site, e.kind === "file" ? size(e.size) : ""].filter(Boolean).join(", ");
-  for (const b of $("tiles").children) b.setAttribute("aria-checked", String(b.dataset.id === optionId));
+  for (const b of $("tiles").children) {
+    b.setAttribute("aria-checked", String(b.dataset.id === optionId));
+    b.lastChild.textContent = clipSizes ? size(clipSizes[b.dataset.id]) : optionOf(e, b.dataset.id)?.sizeText || "";
+  }
   showDir();
 }
 
@@ -105,7 +104,8 @@ function renderSingle() {
   paintIcons(tileIcon.parentElement);
   $("tileText").textContent = e.kind === "file" ? (e.ext || "").toUpperCase().slice(0, 5) : "";
   $("dur").hidden = !e.duration;
-  $("dur").textContent = e.duration ? clock(e.duration) : "";
+  $("dur").textContent = e.duration ? formatTime(e.duration) : "";
+  $("trim").hidden = e.kind !== "video";
   const tiles = $("tiles");
   tiles.hidden = e.kind !== "video";
   if (e.kind === "video" && !tiles.children.length) {
@@ -127,6 +127,8 @@ function renderSingle() {
     }));
   }
   applySingle();
+  $("choose").hidden = !e.zip;
+  showPicked();
 }
 
 // Left and right arrows move along the format tiles, like a radio group.
@@ -151,6 +153,74 @@ function toggleRename() {
     nameEdited = false;
     applySingle();
   }
+}
+
+// Opens the trimmer over the whole video. Closing it goes back to the whole video.
+function toggleTrim() {
+  const row = $("clipRow");
+  row.hidden = !row.hidden;
+  $("trim").setAttribute("aria-expanded", String(!row.hidden));
+  $("trim").textContent = row.hidden ? "Trim" : "Cancel trim";
+  if (!row.hidden) {
+    const e = single();
+    const t = trimmer({ duration: e.duration, storyboard: e.storyboard, onChange: checkClip, screen: $("screen") });
+    row.replaceChildren(t.el);
+    row.querySelector(".trim-handle")?.focus();
+    return;
+  }
+  row.replaceChildren();
+  clipSeq++; // an answer still on its way no longer counts
+  clipRun = Promise.resolve();
+  clip = clipTargets = clipSizes = null;
+  $("go").disabled = false;
+  showError("");
+  applySingle();
+}
+
+// Asks the app whether the range is usable, and for the names and sizes it gives. The app has the one parser.
+function checkClip(range) {
+  const seq = ++clipSeq;
+  clipRun = (async () => {
+    const res = await downy.promptClip(range);
+    showClip(seq, res.ok ? res.data : { error: res.error });
+  })();
+}
+
+function showClip(seq, r) {
+  if (seq !== clipSeq) return;
+  const bad = !!r.error;
+  clip = bad ? null : r.clip;
+  clipTargets = bad ? null : r.targets;
+  clipSizes = bad ? null : r.sizes;
+  $("go").disabled = bad;
+  showError(bad ? r.error : "");
+  applySingle();
+}
+
+// A ZIP on a server that sends parts of files can be downloaded in part: only the files picked
+// in the tree. Closing the tree goes back to the whole archive, like "Keep the name" does.
+let tree = null;
+
+function toggleFiles() {
+  const box = $("zipBox");
+  box.hidden = !box.hidden;
+  if (!box.hidden && !tree) {
+    tree = fileTree(single().zip, { size, onChange: showPicked });
+    box.append(tree.el);
+  }
+  $("choose").textContent = box.hidden ? "Choose files" : "Keep all files";
+  $("choose").setAttribute("aria-expanded", String(!box.hidden));
+  if (!box.hidden && !$("nameRow").hidden) toggleRename();
+  $("rename").hidden = !box.hidden;
+  showPicked();
+}
+
+// The entries picked in the tree, or null for the whole file.
+const pickedFiles = () => (tree && !isGroup() && !$("zipBox").hidden && !tree.all() ? tree.picked() : null);
+
+function showPicked() {
+  const n = pickedFiles()?.length;
+  $("goText").textContent = n == null ? "Download" : n ? `Download ${n} ${n === 1 ? "file" : "files"}` : "Pick files to download";
 }
 
 // ------------------------------------------------- several downloads, or a batch
@@ -345,12 +415,16 @@ function update(next) {
 }
 
 async function submit() {
+  await clipRun;
   const go = $("go");
+  if (go.disabled) return;
+  const files = pickedFiles();
+  if (files && !files.length) return showError("Pick at least one file");
   go.disabled = true;
   showError("");
   const choice = isGroup()
     ? { order, formats, mode, dir: dirEdited ? dir : "" }
-    : { optionId, dir: dirEdited ? dir : "", name: nameEdited && $("name").value.trim() ? $("name").value.trim() : "" };
+    : { optionId, dir: dirEdited ? dir : "", name: nameEdited && $("name").value.trim() ? $("name").value.trim() : "", clip, files };
   const res = await downy.promptSubmit(choice);
   if (!res.ok) {
     go.disabled = false;
@@ -359,6 +433,7 @@ async function submit() {
 }
 
 async function startBatch() {
+  if (!$("clipRow").hidden) toggleTrim(); // a batch is not trimmed
   const res = await downy.promptBatch();
   if (!res.ok) return showError(res.error);
   update(res.data);
@@ -378,6 +453,8 @@ function fit() {
 
   $("name").addEventListener("input", () => (nameEdited = true));
   $("rename").onclick = toggleRename;
+  $("trim").onclick = toggleTrim;
+  $("choose").onclick = toggleFiles;
   $("change").onclick = async () => {
     const r = await downy.promptChooseFolder(dir || view.dir || view.root);
     if (r.ok && r.data) {

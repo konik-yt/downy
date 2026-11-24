@@ -7,7 +7,8 @@
 //   node downy-verify.mjs doctor               read-only health check of the current run
 //   node downy-verify.mjs click <css> [--text "Button text"] [--target prompt]
 //   node downy-verify.mjs type <css> <text> [--replace] [--target prompt]   --replace presses Ctrl+A first
-//   node downy-verify.mjs key <Enter|Escape|Tab> [--target prompt]
+//   node downy-verify.mjs key <Enter|Escape|Tab|ArrowLeft|...|Shift+ArrowRight> [--target prompt]
+//   node downy-verify.mjs drag <css> <dx> [--dy n] [--steps n] [--shot name] [--target prompt]   --shot captures mid-drag
 //   node downy-verify.mjs eval <js> [--target prompt]
 //   node downy-verify.mjs wait <js> [--timeout ms] [--target prompt]
 //   node downy-verify.mjs shot <name> [--target prompt]
@@ -24,6 +25,7 @@ import path from "node:path";
 import http from "node:http";
 import net from "node:net";
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -179,18 +181,68 @@ async function click(run, sel, kind, text) {
   });
 }
 
+// Presses the left button on the centre of the element, moves the mouse by dx and dy in steps
+// with real mouse events, and lets go, like a user dragging a handle. With mid, a screenshot named
+// mid is taken while the button is still down, to catch what shows only during a drag.
+async function drag(run, sel, kind, { dx, dy = 0, steps = 12, mid } = {}) {
+  let file = null;
+  await withPage(run, kind, async (c) => {
+    const box = await c.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(sel)});
+      if (!el) return null;
+      el.scrollIntoView({ block: "center", inline: "center" });
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, hidden: r.width === 0 || r.height === 0 || getComputedStyle(el).visibility === "hidden" };
+    })()`);
+    if (!box) throw new Error(`nothing matches ${sel}`);
+    if (box.hidden) throw new Error(`${sel} is not visible`);
+    const pause = () => new Promise((r) => setTimeout(r, 16));
+    await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x, y: box.y });
+    await c.send("Input.dispatchMouseEvent", { type: "mousePressed", x: box.x, y: box.y, button: "left", buttons: 1, clickCount: 1 });
+    let at = { x: box.x, y: box.y };
+    for (let i = 1; i <= steps; i++) {
+      at = { x: box.x + (dx * i) / steps, y: box.y + (dy * i) / steps };
+      await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...at, button: "left", buttons: 1 });
+      await pause();
+    }
+    if (mid) {
+      await new Promise((r) => setTimeout(r, 300)); // storyboard frames load while the button is down
+      const dir = path.join(run.dir, "evidence");
+      const n = fs.readdirSync(dir).filter((f) => f.endsWith(".png")).length + 1;
+      file = path.join(dir, `${String(n).padStart(2, "0")}-${mid.replace(/[^\w.-]+/g, "_")}.png`);
+      const r = await c.send("Page.captureScreenshot", { format: "png" });
+      fs.writeFileSync(file, Buffer.from(r.data, "base64"));
+    }
+    await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", buttons: 0, clickCount: 1 });
+  });
+  return file;
+}
+
 const KEYS = {
   Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
   Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
   Tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 },
+  ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 },
+  ArrowUp: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38 },
+  ArrowRight: { key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39 },
+  ArrowDown: { key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 },
+  Home: { key: "Home", code: "Home", windowsVirtualKeyCode: 36 },
+  End: { key: "End", code: "End", windowsVirtualKeyCode: 35 },
+  PageUp: { key: "PageUp", code: "PageUp", windowsVirtualKeyCode: 33 },
+  PageDown: { key: "PageDown", code: "PageDown", windowsVirtualKeyCode: 34 },
 };
+const MODIFIERS = { Alt: 1, Ctrl: 2, Shift: 8 };
 
+// name is a key from KEYS, optionally after modifiers, such as Shift+ArrowRight. The key goes to
+// whatever has the focus, so focus the element first, for example by clicking it.
 async function key(run, name, kind) {
-  const k = KEYS[name];
-  if (!k) throw new Error(`unknown key ${name}. Known: ${Object.keys(KEYS).join(", ")}`);
+  const parts = name.split("+");
+  const k = KEYS[parts.pop()];
+  if (!k || !parts.every((m) => MODIFIERS[m])) throw new Error(`unknown key ${name}. Known: ${Object.keys(KEYS).join(", ")}, after ${Object.keys(MODIFIERS).join("+, ")}+`);
+  const modifiers = parts.reduce((n, m) => n | MODIFIERS[m], 0);
   await withPage(run, kind, async (c) => {
-    await c.send("Input.dispatchKeyEvent", { type: "keyDown", ...k });
-    await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: k.key, code: k.code, windowsVirtualKeyCode: k.windowsVirtualKeyCode });
+    await c.send("Input.dispatchKeyEvent", { type: "keyDown", ...k, modifiers });
+    await c.send("Input.dispatchKeyEvent", { type: "keyUp", key: k.key, code: k.code, windowsVirtualKeyCode: k.windowsVirtualKeyCode, modifiers });
   });
 }
 
@@ -219,13 +271,68 @@ function bytesFor(name, size) {
   return out;
 }
 
+// A small ZIP archive for picking files out of it: deflated and stored entries in nested folders,
+// all under one folder named like the archive, and a 4 MB entry that a pick of the others must
+// never fetch. Built the same way every run, so served.json can name each entry's sha256.
+const ZIP_ENTRIES = [
+  ["Sample/readme.txt", Buffer.from("Hello from the sample archive.\n".repeat(60)), 8],
+  ["Sample/docs/guide.md", Buffer.from("# Guide\n" + "A line of the guide.\n".repeat(300)), 8],
+  ["Sample/docs/notes.txt", Buffer.from("notes\n".repeat(500)), 0],
+  ["Sample/big.bin", null, 0],
+  ["Sample/data.json", Buffer.from(JSON.stringify({ n: [...Array(1500).keys()] })), 8],
+];
+
+function zipOf(entries) {
+  const locals = [];
+  const central = [];
+  let off = 0;
+  for (const [name, data, method] of entries) {
+    const n = Buffer.from(name);
+    const packed = method === 8 ? zlib.deflateRawSync(data, { level: 9 }) : data;
+    const crc = zlib.crc32(data);
+    const head = Buffer.alloc(30);
+    head.writeUInt32LE(0x04034b50, 0);
+    head.writeUInt16LE(20, 4);
+    head.writeUInt16LE(0x0800, 6);
+    head.writeUInt16LE(method, 8);
+    head.writeUInt32LE(crc, 14);
+    head.writeUInt32LE(packed.length, 18);
+    head.writeUInt32LE(data.length, 22);
+    head.writeUInt16LE(n.length, 26);
+    locals.push(head, n, packed);
+    const c = Buffer.alloc(46);
+    c.writeUInt32LE(0x02014b50, 0);
+    c.writeUInt16LE(20, 4);
+    c.writeUInt16LE(20, 6);
+    c.writeUInt16LE(0x0800, 8);
+    c.writeUInt16LE(method, 10);
+    c.writeUInt32LE(crc, 16);
+    c.writeUInt32LE(packed.length, 20);
+    c.writeUInt32LE(data.length, 24);
+    c.writeUInt16LE(n.length, 28);
+    c.writeUInt32LE(off, 42);
+    central.push(c, n);
+    off += 30 + n.length + packed.length;
+  }
+  const cd = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(cd.length, 12);
+  end.writeUInt32LE(off, 16);
+  return Buffer.concat([...locals, cd, end]);
+}
+
 const SERVED = {
   "/file/small.bin": { size: 3 * 1024 * 1024, ranges: true, note: "3 MB, Range support, full speed" },
   "/file/slow.bin": { size: 48 * 1024 * 1024, ranges: true, rate: 128 * 1024, note: "48 MB, Range support, 128 KB/s per connection (about 1 MB/s with 8 connections)" },
   "/file/norange.bin": { size: 2 * 1024 * 1024, ranges: false, note: "2 MB, ignores Range like a simple server" },
+  "/file/slow-norange.bin": { size: 8 * 1024 * 1024, ranges: false, rate: 256 * 1024, note: "8 MB, ignores Range, 256 KB/s, for pausing a download that can't resume" },
   // A link that answers with HTML, like a sign-in page. The name must not end in .html:
   // Downy downloads an .html link on purpose, since the user asked for that page.
   "/login": { body: "<!doctype html><title>Sign in</title><p>A web page, not a file.", type: "text/html", note: "a web page with no .html name, which Downy must refuse" },
+  "/file/Sample.zip": { zip: true, ranges: true, type: "application/zip", note: "a ZIP of 5 files in Sample/ (one is 4 MB), Range support, for Choose files" },
   "/page.html": { body: "<!doctype html><title>Saved page</title><p>An .html file.", type: "text/html", note: "an .html link, which Downy downloads as a file" },
 };
 
@@ -233,9 +340,15 @@ async function serve(dir) {
   const files = {};
   const manifest = [];
   for (const [p, f] of Object.entries(SERVED)) {
-    const body = f.body ? Buffer.from(f.body) : bytesFor(p, f.size);
+    const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
+    let body;
+    if (f.zip) {
+      const entries = ZIP_ENTRIES.map(([name, data, method]) => [name, data || bytesFor(name, 4 * 1024 * 1024), method]);
+      body = zipOf(entries);
+      for (const [name, data] of entries) manifest.push({ path: `${p}!/${name}`, name: path.basename(name), size: data.length, sha256: sha(data), note: `entry of ${path.basename(p)}` });
+    } else body = f.body ? Buffer.from(f.body) : bytesFor(p, f.size);
     files[p] = { ...f, body };
-    manifest.push({ path: p, name: path.basename(p), size: body.length, sha256: crypto.createHash("sha256").update(body).digest("hex"), note: f.note });
+    manifest.push({ path: p, name: path.basename(p), size: body.length, sha256: sha(body), note: f.note });
   }
   const logFile = path.join(dir, "evidence", "server-log.jsonl");
   const server = http.createServer((req, res) => {
@@ -533,6 +646,17 @@ async function main() {
       });
       log(run, `type${replace ? " --replace" : ""} ${kind} ${argv[1]} ${JSON.stringify(argv[2])}`);
       return console.log(`typed into ${argv[1]}`);
+    }
+    case "drag": {
+      const run = readRun();
+      const dy = Number(flag("--dy") || 0);
+      const steps = Number(flag("--steps") || 12);
+      const mid = flag("--shot");
+      const dx = Number(argv[2]);
+      if (!argv[1] || !Number.isFinite(dx)) throw new Error("usage: drag <css> <dx> [--dy n] [--steps n] [--shot name]");
+      const file = await drag(run, argv[1], kind, { dx, dy, steps, mid: typeof mid === "string" ? mid : undefined });
+      log(run, `drag ${kind} ${argv[1]} by ${dx},${dy}${file ? ` shot ${file}` : ""}`);
+      return console.log(`dragged ${argv[1]} by ${dx},${dy}${file ? `\n${file}` : ""}`);
     }
     case "key": {
       const run = readRun();
