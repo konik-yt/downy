@@ -72,3 +72,13 @@ test("set saves to disk and tells listeners", (t) => {
   assert.equal(seen.maxActive, 5);
   assert.equal(new Settings(dir).get().maxActive, 5);
 });
+
+test("allNetworks defaults to false and saves as a boolean", (t) => {
+  const dir = tempDir(t);
+  const s = new Settings(dir);
+  assert.equal(s.get().allNetworks, false);
+  assert.equal(s.set({ allNetworks: 1 }).allNetworks, true);
+  assert.equal(new Settings(dir).get().allNetworks, true);
+  assert.equal(s.set({ allNetworks: 0 }).allNetworks, false);
+  assert.equal(new Settings(dir).get().allNetworks, false);
+});

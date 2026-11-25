@@ -7,6 +7,7 @@ const DEFAULTS = {
   downloadDir: path.join(os.homedir(), "Downloads", "Downy"),
   connections: 8, // connections per file
   maxActive: 3, // downloads running at the same time
+  allNetworks: false, // spreads each file across every internet connection; off by default since it bypasses a VPN
   organize: true, // put files in MP3, M4A, 720p, 1080p ... folders
   showOnStart: true, // bring the window up when the extension starts a download
   closeToTray: true,

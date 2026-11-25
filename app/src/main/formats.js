@@ -182,23 +182,24 @@ class InfoCache {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  async get(url, { fresh = false, cookies } = {}) {
+  async get(url, { fresh = false, cookies, sourceAddress } = {}) {
     if (!isHttpUrl(url)) throw new Error("Downy can only read http and https pages");
     for (const [key, e] of this.entries) if (Date.now() - e.at >= TTL) this.entries.delete(key);
     if (Array.isArray(cookies) && cookies.length && !isYoutubeUrl(url)) this.cookies.set(url, cookies);
-    const hit = this.entries.get(url);
+    const key = sourceAddress ? `${url} via ${sourceAddress}` : url;
+    const hit = this.entries.get(key);
     if (!fresh && hit && Date.now() - hit.at < TTL) return hit;
-    if (this.pending.has(url)) return this.pending.get(url);
-    const job = this.extract(url, this.cookies.get(url)).then((info) => {
-      // Named after the URL, since the video id comes from the site and could hold "..\".
-      const name = crypto.createHash("sha256").update(url).digest("hex").slice(0, 32);
+    if (this.pending.has(key)) return this.pending.get(key);
+    const job = this.extract(url, this.cookies.get(url), sourceAddress).then((info) => {
+      // Named after the cache key, since the video id comes from the site and could hold "..\".
+      const name = crypto.createHash("sha256").update(key).digest("hex").slice(0, 32);
       const file = path.join(this.dir, `${name}.info.json`);
       fs.writeFileSync(file, JSON.stringify(info));
       const entry = { at: Date.now(), info, file };
-      this.entries.set(url, entry);
+      this.entries.set(key, entry);
       return entry;
-    }).finally(() => this.pending.delete(url));
-    this.pending.set(url, job);
+    }).finally(() => this.pending.delete(key));
+    this.pending.set(key, job);
     return job;
   }
 
@@ -217,7 +218,7 @@ class InfoCache {
     }
   }
 
-  extract(url, cookies) {
+  extract(url, cookies, sourceAddress) {
     const bin = tools.find("yt-dlp");
     if (!bin) return Promise.reject(new Error("yt-dlp was not found. Open Settings in Downy and click Install tools."));
     if (!isHttpUrl(url)) return Promise.reject(new Error("Downy can only read http and https pages"));
@@ -232,6 +233,7 @@ class InfoCache {
       fs.writeFileSync(jar, cookieFile(cookies), { mode: 0o600 });
       args.push("--cookies", jar);
     }
+    if (sourceAddress) args.push("--source-address", sourceAddress);
     // After "--" yt-dlp reads the URL as a URL even if it starts with "-".
     args.push("--", url);
     const done = () => jar && fs.rm(jar, { force: true }, () => {});

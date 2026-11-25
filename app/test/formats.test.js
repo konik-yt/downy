@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { isYoutubeUrl, isHttpUrl, humanSize, buildOptions, publicOptions, cookieFile, storyboard } = require("../src/main/formats");
+const { isYoutubeUrl, isHttpUrl, humanSize, buildOptions, publicOptions, cookieFile, storyboard, InfoCache } = require("../src/main/formats");
+const { tempDir } = require("./helpers");
 
 test("isYoutubeUrl accepts YouTube hosts and nothing that only looks like one", () => {
   for (const url of [
@@ -150,4 +151,28 @@ test("storyboard picks the biggest frames up to 320 px and counts the frames the
   assert.equal(board.sheets[0], "https://i.ytimg.com/sb/x/sb0/M0.jpg");
   assert.equal(storyboard({ duration: 10, formats: [{ format_id: "18", vcodec: "avc1" }] }), null);
   assert.equal(storyboard({ duration: 10, formats: [{ ...sb("sb0", 320, 180, 3, 3, 1), fragments: [{ url: "http://plain/x.jpg" }] }] }), null, "https only");
+});
+
+test("InfoCache keeps sourceAddress entries separate from the plain URL entry", async (t) => {
+  const cache = new InfoCache(tempDir(t));
+  const seen = [];
+  cache.extract = async (url, _cookies, sourceAddress) => {
+    seen.push({ url, sourceAddress });
+    return { id: sourceAddress || "default", formats: [] };
+  };
+
+  const url = "https://www.youtube.com/watch?v=abc";
+  const plain = await cache.get(url);
+  const viaRoute = await cache.get(url, { fresh: true, sourceAddress: "10.0.0.2" });
+  const plainAgain = await cache.get(url);
+
+  assert.equal(plain.info.id, "default");
+  assert.equal(viaRoute.info.id, "10.0.0.2");
+  assert.notEqual(plain.file, viaRoute.file);
+  assert.equal(plainAgain.info.id, "default");
+  assert.equal(plainAgain.file, plain.file);
+  assert.deepEqual(seen, [
+    { url, sourceAddress: undefined },
+    { url, sourceAddress: "10.0.0.2" },
+  ]);
 });

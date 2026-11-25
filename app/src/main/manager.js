@@ -9,6 +9,7 @@ const { EventEmitter } = require("events");
 const tools = require("./tools");
 const { buildOptions, isYoutubeUrl, TTL: INFO_TTL } = require("./formats");
 const { downloadStream, streamDone, streamBytes, probe, AbortError } = require("./segmented");
+const { detectRoutes } = require("./routes");
 const { parseClip, label: clipLabel, estimate: clipEstimate, planStream, split: splitStream } = require("./clip");
 const zip = require("./zip");
 
@@ -782,9 +783,18 @@ class Manager extends EventEmitter {
     }
   }
 
-  async refreshUrls(j) {
+  async refreshUrls(j, route) {
     if (j.kind === "file") {
       throw Object.assign(new Error("The download link stopped working. Start the download again from the website."), { retry: false });
+    }
+    if (route && !route.primary) {
+      const entry = await this.cache.get(j.url, { fresh: true, sourceAddress: route.address });
+      for (const st of j.streams) {
+        const f = (entry.info.formats || []).find((x) => String(x.format_id) === st.formatId);
+        if (!f) throw new Error("YouTube no longer offers this format. Remove the download and start it again.");
+        st.links = { ...st.links, [route.address]: { url: f.url, headers: f.http_headers || {} } };
+      }
+      return;
     }
     const entry = await this.cache.get(j.url, { fresh: true });
     j.infoFile = entry.file;
@@ -817,6 +827,9 @@ class Manager extends EventEmitter {
     // Links from YouTube expire after a few hours, so a download resumed later needs fresh ones.
     if (j.kind !== "file" && j.streams.some((st) => !streamDone(st) && linkExpired(st.url))) await this.refreshUrls(j);
     await this.planClip(j, rt);
+    const routes = this.settings.get().allNetworks ? await detectRoutes() : null;
+    if (rt.ctrl.signal.aborted) throw new AbortError();
+    const refreshRoute = j.kind === "file" ? undefined : (route) => this.refreshUrls(j, route);
     for (const st of j.streams) {
       if (streamDone(st) && st.path && fs.existsSync(st.path)) continue;
       if (!st.path) st.path = path.join(parts, [j.id, st.role, st.part, st.ext || "bin"].filter(Boolean).join("."));
@@ -826,6 +839,8 @@ class Manager extends EventEmitter {
         signal: rt.ctrl.signal,
         onBytes: (n) => (rt.bytes += n),
         refresh: () => this.refreshUrls(j),
+        routes,
+        refreshRoute,
       });
       j.expected = j.streams.reduce((n, s) => n + (s.size || 0), 0);
       this.saveSoon();
