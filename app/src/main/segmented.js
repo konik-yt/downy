@@ -7,10 +7,24 @@
 // manager saves to disk, so a paused or interrupted download picks up where it
 // stopped.
 const fs = require("fs");
+const { fetch: boundFetch } = require("undici");
+const { agentFor } = require("./routes");
 
 const CHUNK = 10 * 1024 * 1024; // YouTube slows down single requests bigger than about 10 MB.
 const MIN_SPLIT = 1024 * 1024; // do not split segments that have less than 1 MB left per half.
 const MAX_RETRIES = 8;
+const DEAD_CODES = new Set([
+  "UND_ERR_CONNECT_TIMEOUT",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EADDRNOTAVAIL",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+]);
+
+function errorCode(err) {
+  return err?.cause?.code || err?.code || err?.cause?.errors?.[0]?.code || "";
+}
 
 class AbortError extends Error {
   constructor() {
@@ -116,7 +130,8 @@ async function downloadStream(st, opts) {
     st.segments = null; // left over from a single-connection try
     delete st.partial;
   }
-  if (!st.segments || !st.segments.length) st.segments = split(st.size, opts.connections);
+  const useRoutes = (opts.routes?.length || 0) >= 2;
+  if (!st.segments || !st.segments.length) st.segments = split(st.size, opts.connections * (useRoutes ? opts.routes.length : 1));
   for (const s of st.segments) s.busy = false;
 
   const exists = fs.existsSync(st.path);
@@ -131,8 +146,11 @@ async function downloadStream(st, opts) {
 }
 
 function runWorkers(st, fh, opts) {
-  const { signal, onBytes, refresh } = opts;
+  const { signal, onBytes, refresh, refreshRoute, routes } = opts;
   const connections = () => Math.max(1, opts.connections);
+  const pool = routes?.length >= 2
+    ? routes.map((route) => ({ route, running: 0, dead: false, refreshed: false, refreshing: null, agent: route.primary ? null : agentFor(route.address) }))
+    : null;
   const local = new AbortController();
   const onAbort = () => local.abort();
   signal.addEventListener("abort", onAbort, { once: true });
@@ -140,6 +158,7 @@ function runWorkers(st, fh, opts) {
   return new Promise((resolve, reject) => {
     let running = 0;
     let failure = null;
+    let lastRouteError = null;
 
     const steal = () => {
       let best = null;
@@ -162,17 +181,28 @@ function runWorkers(st, fh, opts) {
       else resolve();
     };
 
+    const pickSlot = () => {
+      let best = null;
+      for (const s of pool) {
+        if (!s.dead && s.running < connections() && (!best || s.running < best.running)) best = s;
+      }
+      return best;
+    };
+
     const launch = () => {
       if (failure || signal.aborted) {
         if (!running) finish();
         return;
       }
-      while (running < connections()) {
+      while (pool ? true : running < connections()) {
+        const slot = pool ? pickSlot() : null;
+        if (pool && !slot) break;
         const seg = st.segments.find((s) => !s.busy && s.pos <= s.end) || steal();
         if (!seg) break;
         seg.busy = true;
         running++;
-        worker(seg).then(
+        if (slot) slot.running++;
+        worker(seg, slot).then(
           () => {},
           (err) => {
             if (!(err instanceof AbortError) && !signal.aborted && !failure) {
@@ -183,22 +213,57 @@ function runWorkers(st, fh, opts) {
         ).finally(() => {
           seg.busy = false;
           running--;
+          if (slot) slot.running--;
           launch();
         });
+      }
+      if (!running && pool && !failure && !signal.aborted && pool.every((s) => s.dead) && st.segments.some((s) => s.pos <= s.end)) {
+        failure = lastRouteError || new Error("No live network routes");
       }
       if (!running) finish();
     };
 
-    const worker = async (seg) => {
+    const worker = async (seg, slot) => {
+      const route = slot?.route;
+      const primary = !route || route.primary;
+      const die = (err) => {
+        if (err) lastRouteError = err;
+        slot.dead = true;
+      };
       let attempts = 0;
       while (seg.pos <= seg.end) {
         if (local.signal.aborted) throw new AbortError();
+        if (slot?.dead) return;
         const to = Math.min(seg.end, seg.pos + CHUNK - 1);
         const at = st.offset || 0;
+        const link = primary ? st : (st.links?.[route.address] || st);
+        const init = {
+          headers: headersFor(link, `bytes=${at + seg.pos}-${at + to}`),
+          signal: local.signal,
+          ...(slot?.agent ? { dispatcher: slot.agent } : {}),
+        };
         try {
-          const res = await fetch(st.url, { headers: headersFor(st, `bytes=${at + seg.pos}-${at + to}`), signal: local.signal });
+          const res = await (slot?.agent ? boundFetch : fetch)(link.url, init);
           if (res.status === 403 || res.status === 410) {
             res.body?.cancel().catch(() => {});
+            if (!primary) {
+              if (refreshRoute && !slot.refreshed) {
+                if (!slot.refreshing) {
+                  slot.refreshing = Promise.resolve(refreshRoute(route)).finally(() => {
+                    slot.refreshed = true;
+                    slot.refreshing = null;
+                  });
+                }
+                try {
+                  await slot.refreshing;
+                } catch (e) {
+                  if (local.signal.aborted) throw new AbortError();
+                  return die(e);
+                }
+                continue;
+              }
+              return die(new Error(`The server answered ${res.status}`));
+            }
             if (++attempts > 3) throw Object.assign(new Error("YouTube refused the download link. Try again later."), { retry: false });
             await refresh();
             continue;
@@ -221,8 +286,12 @@ function runWorkers(st, fh, opts) {
           attempts = 0;
         } catch (e) {
           if (local.signal.aborted || e.name === "AbortError") throw new AbortError();
-          if (e.retry === false) throw e;
-          if (++attempts > MAX_RETRIES) throw e;
+          if (!primary) {
+            if (DEAD_CODES.has(errorCode(e)) || e.retry === false || ++attempts > MAX_RETRIES) return die(e);
+          } else {
+            if (e.retry === false) throw e;
+            if (++attempts > MAX_RETRIES) throw e;
+          }
           await sleep(Math.min(500 * 2 ** attempts, 15000), local.signal);
         }
       }

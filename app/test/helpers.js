@@ -28,8 +28,8 @@ async function fileServer(t, files, { ranges = true, deny = 0 } = {}) {
 
   const answer = (req, res, file) => {
     if (res.destroyed || req.socket.destroyed) return;
-    if (deny > 0) {
-      deny--;
+    if (typeof deny === "function" ? deny(req) : deny > 0) {
+      if (typeof deny === "number") deny--;
       res.writeHead(403);
       return res.end();
     }
@@ -48,7 +48,7 @@ async function fileServer(t, files, { ranges = true, deny = 0 } = {}) {
 
   const server = http.createServer((req, res) => {
     const p = req.url.split("?")[0];
-    log.push({ url: req.url, path: p, range: req.headers.range, headers: req.headers });
+    log.push({ url: req.url, path: p, range: req.headers.range, headers: req.headers, remoteAddress: req.socket.remoteAddress });
     for (const w of watchers) w();
     const file = files[p];
     if (!file) {

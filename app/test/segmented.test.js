@@ -206,3 +206,83 @@ test("downloadStream with an offset fetches only that part of the file", async (
     assert.ok(a >= from && b < from + size, `${r.range} stays inside the part`);
   }
 });
+
+test("downloadStream splits segments across multiple live routes", async (t) => {
+  const body = randomBytes(6 * MB + 17);
+  const { base, log } = await fileServer(t, { "/v": { body } });
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/v`);
+  const routes = [
+    { name: "Primary", address: "127.0.0.1", primary: true },
+    { name: "Secondary", address: "127.0.0.2", primary: false },
+  ];
+  await downloadStream(st, opts({ connections: 2, routes }));
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.equal(streamDone(st), true);
+  const ranged = log.filter((r) => r.range && r.range !== "bytes=0-0");
+  const remotes = new Set(ranged.map((r) => r.remoteAddress));
+  assert.ok(remotes.has("127.0.0.1"), `expected requests from 127.0.0.1, got ${[...remotes]}`);
+  assert.ok(remotes.has("127.0.0.2"), `expected requests from 127.0.0.2, got ${[...remotes]}`);
+});
+
+test("downloadStream drops a dead non-primary route and finishes on the live route", async (t) => {
+  const body = randomBytes(4 * MB + 5);
+  const { base } = await fileServer(t, { "/v": { body } });
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/v`);
+  const routes = [
+    { name: "Primary", address: "127.0.0.1", primary: true },
+    { name: "Dead", address: "192.0.2.1", primary: false },
+  ];
+  await downloadStream(st, opts({ connections: 2, routes }));
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.equal(streamDone(st), true);
+});
+
+test("downloadStream drops a non-primary route on 403 without calling refresh", async (t) => {
+  const body = randomBytes(4 * MB + 9);
+  const { base, log } = await fileServer(t, { "/v": { body } }, { deny: (req) => req.socket.remoteAddress === "127.0.0.2" });
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/v`);
+  const routes = [
+    { name: "Primary", address: "127.0.0.1", primary: true },
+    { name: "Secondary", address: "127.0.0.2", primary: false },
+  ];
+  let refreshed = 0;
+  await downloadStream(st, opts({
+    connections: 2,
+    routes,
+    refresh: async () => { refreshed++; },
+  }));
+  assert.equal(refreshed, 0);
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.equal(streamDone(st), true);
+  assert.ok(log.some((r) => r.remoteAddress === "127.0.0.2"));
+});
+
+test("downloadStream refreshes a non-primary route once via refreshRoute and uses its link", async (t) => {
+  const body = randomBytes(4 * MB + 11);
+  const { base, log } = await fileServer(
+    t,
+    { "/primary": { body }, "/secondary": { body } },
+    { deny: (req) => req.url === "/primary" && req.socket.remoteAddress === "127.0.0.2" },
+  );
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/primary`);
+  const routes = [
+    { name: "Primary", address: "127.0.0.1", primary: true },
+    { name: "Secondary", address: "127.0.0.2", primary: false },
+  ];
+  const routeRefreshes = [];
+  await downloadStream(st, opts({
+    connections: 2,
+    routes,
+    refreshRoute: async (route) => {
+      routeRefreshes.push(route.address);
+      st.links = { ...st.links, [route.address]: { url: `${base}/secondary`, headers: {} } };
+    },
+  }));
+  assert.deepEqual(routeRefreshes, ["127.0.0.2"]);
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.ok(log.some((r) => r.url === "/secondary" && r.remoteAddress === "127.0.0.2"));
+});
