@@ -206,3 +206,104 @@ test("downloadStream with an offset fetches only that part of the file", async (
     assert.ok(a >= from && b < from + size, `${r.range} stays inside the part`);
   }
 });
+
+test("downloadStream splits segments across multiple live routes", async (t) => {
+  const body = randomBytes(6 * MB + 17);
+  const { base, log } = await fileServer(t, { "/v": { body } });
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/v`);
+  const routes = [
+    { name: "Primary", address: "127.0.0.1", primary: true },
+    { name: "Secondary", address: "127.0.0.2", primary: false },
+  ];
+  await downloadStream(st, opts({ connections: 2, routes }));
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.equal(streamDone(st), true);
+  const ranged = log.filter((r) => r.range && r.range !== "bytes=0-0");
+  const remotes = new Set(ranged.map((r) => r.remoteAddress));
+  assert.ok(remotes.has("127.0.0.1"), `expected requests from 127.0.0.1, got ${[...remotes]}`);
+  assert.ok(remotes.has("127.0.0.2"), `expected requests from 127.0.0.2, got ${[...remotes]}`);
+});
+
+test("downloadStream drops a dead non-primary route and finishes on the live route", async (t) => {
+  const body = randomBytes(4 * MB + 5);
+  const { base } = await fileServer(t, { "/v": { body } });
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/v`);
+  const routes = [
+    { name: "Primary", address: "127.0.0.1", primary: true },
+    { name: "Dead", address: "192.0.2.1", primary: false },
+  ];
+  await downloadStream(st, opts({ connections: 2, routes }));
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.equal(streamDone(st), true);
+});
+
+test("downloadStream drops a non-primary route on 403 without calling refresh", async (t) => {
+  const body = randomBytes(4 * MB + 9);
+  const { base, log } = await fileServer(t, { "/v": { body } }, { deny: (req) => req.socket.remoteAddress === "127.0.0.2" });
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/v`);
+  const routes = [
+    { name: "Primary", address: "127.0.0.1", primary: true },
+    { name: "Secondary", address: "127.0.0.2", primary: false },
+  ];
+  let refreshed = 0;
+  await downloadStream(st, opts({
+    connections: 2,
+    routes,
+    refresh: async () => { refreshed++; },
+  }));
+  assert.equal(refreshed, 0);
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.equal(streamDone(st), true);
+  assert.ok(log.some((r) => r.remoteAddress === "127.0.0.2"));
+});
+
+test("downloadStream refreshes a non-primary route once via refreshRoute and uses its link", async (t) => {
+  const body = randomBytes(4 * MB + 11);
+  const { base, log } = await fileServer(
+    t,
+    { "/primary": { body }, "/secondary": { body } },
+    { deny: (req) => req.url === "/primary" && req.socket.remoteAddress === "127.0.0.2" },
+  );
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/primary`);
+  const routes = [
+    { name: "Primary", address: "127.0.0.1", primary: true },
+    { name: "Secondary", address: "127.0.0.2", primary: false },
+  ];
+  const routeRefreshes = [];
+  await downloadStream(st, opts({
+    connections: 2,
+    routes,
+    refreshRoute: async (route) => {
+      routeRefreshes.push(route.address);
+      st.links = { ...st.links, [route.address]: { url: `${base}/secondary`, headers: {} } };
+    },
+  }));
+  assert.deepEqual(routeRefreshes, ["127.0.0.2"]);
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.ok(log.some((r) => r.url === "/secondary" && r.remoteAddress === "127.0.0.2"));
+});
+
+test("a fast route takes the tail from a slow route instead of waiting for it", async (t) => {
+  const body = randomBytes(12 * MB);
+  const slow = 512 * 1024; // bytes per second per connection on the primary route
+  const { base } = await fileServer(t, { "/v": { body } }, { rate: { "127.0.0.1": slow } });
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/v`);
+  const routes = [
+    { name: "Slow", address: "127.0.0.1", primary: true },
+    { name: "Fast", address: "127.0.0.2", primary: false },
+  ];
+  const started = Date.now();
+  await downloadStream(st, opts({ connections: 2, routes }));
+  const took = Date.now() - started;
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.equal(streamDone(st), true);
+  // The slow route starts on 3 MB segments and needs 6 s for one. Splitting by bytes left it 1.5 MB,
+  // so 3 s. The fast route moves all 12 MB in well under a second, so a quarter of 6 s is easy for it.
+  const alone = (body.length / 4 / slow) * 1000;
+  assert.ok(took < alone / 4, `took ${took} ms, the slow route alone needs ${alone} ms`);
+});

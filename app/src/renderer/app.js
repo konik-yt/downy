@@ -1708,7 +1708,7 @@ function renderSettings() {
   $("setDir").title = s.downloadDir;
   $("welcomeDir").textContent = s.downloadDir;
   $("openFolder").title = `Open the download folder, ${s.downloadDir}`;
-  for (const name of ["organize", "confirm", "showOnStart", "closeToTray", "openAtLogin", "notify"]) f.elements[name].checked = !!s[name];
+  for (const name of ["organize", "allNetworks", "confirm", "showOnStart", "closeToTray", "openAtLogin", "notify"]) f.elements[name].checked = !!s[name];
   roll(f.elements.connections, s.connections);
   roll(f.elements.maxActive, s.maxActive);
   for (const b of f.querySelectorAll("[data-step]")) {
@@ -2073,7 +2073,7 @@ function wire() {
     showExtensionStep("settings");
   };
   const form = $("settingsForm");
-  for (const name of ["organize", "confirm", "showOnStart", "closeToTray", "openAtLogin", "notify"]) {
+  for (const name of ["organize", "allNetworks", "confirm", "showOnStart", "closeToTray", "openAtLogin", "notify"]) {
     form.elements[name].addEventListener("change", (e) => saveSetting({ [name]: e.target.checked }));
   }
   for (const b of form.querySelectorAll("[data-step]")) {
