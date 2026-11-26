@@ -18,9 +18,11 @@ function tempDir(t, prefix = "downy-test-") {
 //
 // A file with `hold: true` gets no answer until `release(path)`, so a test can keep a
 // download running for as long as it needs. `hold(path)` holds a file from then on.
+// `rate` ({ "127.0.0.1": bytesPerSecond }) slows each connection from that address, like a
+// slow network card.
 // `requested()` lists the paths in the order the server first saw them, and
 // `asked(path, n)` waits until the server has had n requests for path.
-async function fileServer(t, files, { ranges = true, deny = 0 } = {}) {
+async function fileServer(t, files, { ranges = true, deny = 0, rate = {} } = {}) {
   const log = [];
   const held = new Map(); // path -> answers waiting for release()
   const watchers = new Set();
@@ -40,10 +42,26 @@ async function fileServer(t, files, { ranges = true, deny = 0 } = {}) {
       const start = Number(m[1]);
       const end = Math.min(m[2] ? Number(m[2]) : file.body.length - 1, file.body.length - 1);
       res.writeHead(206, { ...headers, "Content-Range": `bytes ${start}-${end}/${file.body.length}`, "Content-Length": end - start + 1 });
-      return res.end(file.body.subarray(start, end + 1));
+      return send(req, res, file.body.subarray(start, end + 1));
     }
     res.writeHead(200, { ...headers, "Content-Length": file.body.length });
-    res.end(file.body);
+    send(req, res, file.body);
+  };
+
+  const send = (req, res, body) => {
+    const bps = rate[req.socket.remoteAddress];
+    if (!bps) return res.end(body);
+    const piece = Math.ceil(bps / 32);
+    const t0 = Date.now();
+    let sent = 0;
+    const next = () => {
+      if (res.destroyed) return;
+      if (sent >= body.length) return res.end();
+      res.write(body.subarray(sent, sent + piece));
+      sent += piece;
+      setTimeout(next, Math.max(0, t0 + (sent / bps) * 1000 - Date.now()));
+    };
+    next();
   };
 
   const server = http.createServer((req, res) => {

@@ -286,3 +286,24 @@ test("downloadStream refreshes a non-primary route once via refreshRoute and use
   assert.ok(fs.readFileSync(st.path).equals(body));
   assert.ok(log.some((r) => r.url === "/secondary" && r.remoteAddress === "127.0.0.2"));
 });
+
+test("a fast route takes the tail from a slow route instead of waiting for it", async (t) => {
+  const body = randomBytes(12 * MB);
+  const slow = 512 * 1024; // bytes per second per connection on the primary route
+  const { base } = await fileServer(t, { "/v": { body } }, { rate: { "127.0.0.1": slow } });
+  const dir = tempDir(t);
+  const st = stream(dir, `${base}/v`);
+  const routes = [
+    { name: "Slow", address: "127.0.0.1", primary: true },
+    { name: "Fast", address: "127.0.0.2", primary: false },
+  ];
+  const started = Date.now();
+  await downloadStream(st, opts({ connections: 2, routes }));
+  const took = Date.now() - started;
+  assert.ok(fs.readFileSync(st.path).equals(body));
+  assert.equal(streamDone(st), true);
+  // The slow route starts on 3 MB segments and needs 6 s for one. Splitting by bytes left it 1.5 MB,
+  // so 3 s. The fast route moves all 12 MB in well under a second, so a quarter of 6 s is easy for it.
+  const alone = (body.length / 4 / slow) * 1000;
+  assert.ok(took < alone / 4, `took ${took} ms, the slow route alone needs ${alone} ms`);
+});

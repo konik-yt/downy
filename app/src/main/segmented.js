@@ -12,6 +12,8 @@ const { agentFor } = require("./routes");
 
 const CHUNK = 10 * 1024 * 1024; // YouTube slows down single requests bigger than about 10 MB.
 const MIN_SPLIT = 1024 * 1024; // do not split segments that have less than 1 MB left per half.
+const MIN_TAKE = 64 * 1024; // with several networks, a tail smaller than this costs more in round trips than it saves.
+const MIN_GAIN = 0.5; // seconds that taking a tail from another network has to save.
 const MAX_RETRIES = 8;
 const DEAD_CODES = new Set([
   "UND_ERR_CONNECT_TIMEOUT",
@@ -56,6 +58,9 @@ function split(size, n) {
   }
   return segs;
 }
+
+// Bytes per second of one connection on a network, or 0 before it has sent anything.
+const speed = (slot) => (slot.secs ? slot.bytes / slot.secs : 0);
 
 function headersFor(st, range) {
   const h = { ...st.headers };
@@ -149,7 +154,7 @@ function runWorkers(st, fh, opts) {
   const { signal, onBytes, refresh, refreshRoute, routes } = opts;
   const connections = () => Math.max(1, opts.connections);
   const pool = routes?.length >= 2
-    ? routes.map((route) => ({ route, running: 0, dead: false, refreshed: false, refreshing: null, agent: route.primary ? null : agentFor(route.address) }))
+    ? routes.map((route) => ({ route, running: 0, dead: false, refreshed: false, refreshing: null, agent: route.primary ? null : agentFor(route.address), bytes: 0, secs: 0 }))
     : null;
   const local = new AbortController();
   const onAbort = () => local.abort();
@@ -160,18 +165,43 @@ function runWorkers(st, fh, opts) {
     let failure = null;
     let lastRouteError = null;
 
+    const held = new Map(); // busy segment -> the pool slot downloading it
+
+    const splitAt = (seg, mid) => {
+      const tail = { start: mid, end: seg.end, pos: mid, busy: false };
+      seg.end = mid - 1;
+      st.segments.splice(st.segments.indexOf(seg) + 1, 0, tail);
+      return tail;
+    };
+
     const steal = () => {
       let best = null;
       for (const s of st.segments) {
         const left = s.end - s.pos + 1;
         if (s.busy && left >= MIN_SPLIT * 2 && (!best || left > best.end - best.pos + 1)) best = s;
       }
+      return best && splitAt(best, best.pos + Math.floor((best.end - best.pos + 1) / 2));
+    };
+
+    // Networks differ in speed, so the idle `thief` takes the tail of the segment that would finish last,
+    // not the one with most bytes left, and the two split the bytes by speed to end together. A holder far
+    // slower than the thief gives up nearly all of it. Its worker stops at its next chunk (see `room`).
+    const takeOver = (thief) => {
+      const vt = speed(thief);
+      const pace = (s) => speed(held.get(s)) || vt || 1; // a network that has sent nothing yet counts as equal
+      const next = (s) => s.pos + (s.writing || 0); // a tail starts after the chunk being written
+      const eta = (s) => (s.end - next(s) + 1) / pace(s);
+      let best = null;
+      for (const s of st.segments) {
+        if (s.busy && next(s) <= s.end && (!best || eta(s) > eta(best))) best = s;
+      }
       if (!best) return null;
-      const mid = best.pos + Math.floor((best.end - best.pos + 1) / 2);
-      const seg = { start: mid, end: best.end, pos: mid, busy: false };
-      best.end = mid - 1;
-      st.segments.splice(st.segments.indexOf(best) + 1, 0, seg);
-      return seg;
+      const left = best.end - next(best) + 1;
+      const vh = pace(best);
+      const keep = Math.floor((left * vh) / (vh + (vt || vh)));
+      const take = left - keep;
+      if (take < MIN_TAKE || (eta(best) * take) / left < MIN_GAIN) return null;
+      return splitAt(best, next(best) + keep);
     };
 
     const finish = () => {
@@ -181,10 +211,12 @@ function runWorkers(st, fh, opts) {
       else resolve();
     };
 
-    const pickSlot = () => {
+    // Spreads fresh segments over the networks. Without one, the fastest idle network goes first.
+    const pickSlot = (spread) => {
       let best = null;
       for (const s of pool) {
-        if (!s.dead && s.running < connections() && (!best || s.running < best.running)) best = s;
+        if (s.dead || s.running >= connections()) continue;
+        if (!best || (spread ? s.running < best.running : speed(s) > speed(best))) best = s;
       }
       return best;
     };
@@ -195,13 +227,17 @@ function runWorkers(st, fh, opts) {
         return;
       }
       while (pool ? true : running < connections()) {
-        const slot = pool ? pickSlot() : null;
+        const free = st.segments.find((s) => !s.busy && s.pos <= s.end);
+        const slot = pool ? pickSlot(!!free) : null;
         if (pool && !slot) break;
-        const seg = st.segments.find((s) => !s.busy && s.pos <= s.end) || steal();
+        const seg = free || (pool ? takeOver(slot) : steal());
         if (!seg) break;
         seg.busy = true;
         running++;
-        if (slot) slot.running++;
+        if (slot) {
+          slot.running++;
+          held.set(seg, slot);
+        }
         worker(seg, slot).then(
           () => {},
           (err) => {
@@ -214,6 +250,7 @@ function runWorkers(st, fh, opts) {
           seg.busy = false;
           running--;
           if (slot) slot.running--;
+          held.delete(seg);
           launch();
         });
       }
@@ -237,6 +274,7 @@ function runWorkers(st, fh, opts) {
         const to = Math.min(seg.end, seg.pos + CHUNK - 1);
         const at = st.offset || 0;
         const link = primary ? st : (st.links?.[route.address] || st);
+        let mark = performance.now();
         const init = {
           headers: headersFor(link, `bytes=${at + seg.pos}-${at + to}`),
           signal: local.signal,
@@ -278,9 +316,20 @@ function runWorkers(st, fh, opts) {
             if (room <= 0) break;
             let buf = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
             if (buf.length > room) buf = buf.subarray(0, room);
-            await fh.write(buf, 0, buf.length, seg.pos);
+            seg.writing = buf.length;
+            try {
+              await fh.write(buf, 0, buf.length, seg.pos);
+            } finally {
+              seg.writing = 0;
+            }
             seg.pos += buf.length;
             onBytes(buf.length);
+            if (slot) {
+              const now = performance.now();
+              slot.bytes += buf.length;
+              slot.secs += (now - mark) / 1000;
+              mark = now;
+            }
           }
           if (seg.pos === before && seg.pos <= seg.end) throw new Error("The server sent no data");
           attempts = 0;
